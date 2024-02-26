@@ -12,8 +12,16 @@
 
           shellHook = ''
             export LD_LIBRARY_PATH=/run/opengl-driver/lib/:${
-              pkgs.lib.makeLibraryPath
-              (with pkgs; [ libGL libGLU wayland libxkbcommon ])
+              pkgs.lib.makeLibraryPath (with pkgs; [
+                libglvnd
+                xorg.libXcursor
+                xorg.libXi
+                libxkbcommon
+                xorg.libXrandr
+                xorg.libX11
+                vulkan-loader
+                wayland
+              ])
             }
           '';
         });

@@ -1,8 +1,9 @@
-use std::borrow::Cow;
+use nalgebra_glm::{Mat4, Vec1, Vec3};
+use std::{borrow::Cow, time::Instant};
 use wgpu::util::DeviceExt;
 use winit::{
     event::{Event, WindowEvent},
-    event_loop::EventLoop,
+    event_loop::{ControlFlow, EventLoop},
     window::Window,
 };
 
@@ -40,14 +41,10 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         .expect("Failed to create device");
 
     let verts: [f32; 18] = [
-        // first triangle
-        0.5, 0.5, 0.0, // top right
-        0.5, -0.5, 0.0, // bottom right
-        -0.5, 0.5, 0.0, // top left
-        // second triangle
-        0.5, -0.5, 0.0, // bottom right
-        -0.5, -0.5, 0.0, // bottom left
-        -0.5, 0.5, 0.0, // top left
+        // positions         // colors
+        0.5, -0.5, 0.0, 1.0, 0.0, 0.0, // bottom right
+        -0.5, -0.5, 0.0, 0.0, 1.0, 0.0, // bottom left
+        0.0, 0.5, 0.0, 0.0, 0.0, 1.0, // top
     ];
 
     let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -56,14 +53,57 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         usage: wgpu::BufferUsages::VERTEX,
     });
 
-    let vertex_buffers = [wgpu::VertexBufferLayout {
-        array_stride: (3 * std::mem::size_of::<f32>()) as u64,
-        step_mode: wgpu::VertexStepMode::Vertex,
-        attributes: &[wgpu::VertexAttribute {
-            format: wgpu::VertexFormat::Float32x3,
-            offset: 0,
-            shader_location: 0,
+    let rotation_mat = nalgebra_glm::rotate::<f32>(
+        &Mat4::identity(),
+        nalgebra_glm::radians(&Vec1::new(90.0)).x,
+        &Vec3::new(0.0, 0.0, 1.0),
+    );
+
+    let rotation_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("rotation buffer"),
+        contents: bytemuck::cast_slice(rotation_mat.as_slice()),
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+    });
+
+    let rotation_bind_group_layout =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("rotation binding group layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+
+    let rotation_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("rotation binding group"),
+        layout: &rotation_bind_group_layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: rotation_buf.as_entire_binding(),
         }],
+    });
+
+    let vertex_buffers = [wgpu::VertexBufferLayout {
+        array_stride: 6 * std::mem::size_of::<f32>() as u64,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &[
+            wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32x3,
+                offset: 0,
+                shader_location: 0,
+            },
+            wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32x3,
+                offset: 3 * std::mem::size_of::<f32>() as u64,
+                shader_location: 1,
+            },
+        ],
     }];
 
     // Load the shaders from disk
@@ -74,7 +114,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: None,
-        bind_group_layouts: &[],
+        bind_group_layouts: &[&rotation_bind_group_layout],
         push_constant_ranges: &[],
     });
 
@@ -106,6 +146,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     surface.configure(&device, &config);
 
     let window = &window;
+    let time_start = Instant::now();
     event_loop
         .run(move |event, target| {
             // Have the closure take ownership of the resources.
@@ -146,7 +187,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                                         view: &view,
                                         resolve_target: None,
                                         ops: wgpu::Operations {
-                                            load: wgpu::LoadOp::Clear(wgpu::Color::BLUE),
+                                            load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
                                             store: wgpu::StoreOp::Store,
                                         },
                                     })],
@@ -155,12 +196,27 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                                     occlusion_query_set: None,
                                 });
                             rpass.set_pipeline(&render_pipeline);
+                            rpass.set_bind_group(0, &rotation_bind_group, &[]);
                             rpass.set_vertex_buffer(0, vertex_buf.slice(..));
-                            rpass.draw(0..6, 0..1);
+                            rpass.draw(0..3, 0..1);
                         }
 
+                        let current_time = time_start.elapsed().as_secs_f32();
+                        let rotation_mat = nalgebra_glm::rotate::<f32>(
+                            &Mat4::identity(),
+                            nalgebra_glm::radians(&Vec1::new(current_time)).x,
+                            &Vec3::new(0.0, 0.0, 1.0),
+                        );
+
+                        queue.write_buffer(
+                            &rotation_buf,
+                            0,
+                            bytemuck::cast_slice(rotation_mat.as_slice()),
+                        );
                         queue.submit(Some(encoder.finish()));
                         frame.present();
+
+                        window.request_redraw();
                     }
                     WindowEvent::CloseRequested => target.exit(),
                     _ => {}
@@ -172,6 +228,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
 
 pub fn main() {
     let event_loop = EventLoop::new().unwrap();
+
+    event_loop.set_control_flow(ControlFlow::Poll);
     #[allow(unused_mut)]
     let mut builder = winit::window::WindowBuilder::new();
     let window = builder.build(&event_loop).unwrap();
