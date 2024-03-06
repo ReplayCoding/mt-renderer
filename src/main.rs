@@ -1,4 +1,4 @@
-use nalgebra_glm::{Mat4, Vec1, Vec3};
+use glam::Mat4;
 use std::{borrow::Cow, time::Instant};
 use wgpu::util::DeviceExt;
 use winit::{
@@ -6,6 +6,11 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::Window,
 };
+
+fn compute_mat(deg: f32, aspect: f32) -> Mat4 {
+    glam::Mat4::from_scale(glam::Vec3::new(0.5 / aspect, 0.5, 1.0))
+        * glam::Mat4::from_rotation_z(deg.to_radians())
+}
 
 async fn run(event_loop: EventLoop<()>, window: Window) {
     let mut size = window.inner_size();
@@ -53,21 +58,17 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         usage: wgpu::BufferUsages::VERTEX,
     });
 
-    let rotation_mat = nalgebra_glm::rotate::<f32>(
-        &Mat4::identity(),
-        nalgebra_glm::radians(&Vec1::new(90.0)).x,
-        &Vec3::new(0.0, 0.0, 1.0),
-    );
-
-    let rotation_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("rotation buffer"),
-        contents: bytemuck::cast_slice(rotation_mat.as_slice()),
+    let transform_buf = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("transform buffer"),
+        // contents: bytemuck::cast_slice(transform_mat.as_ref()),
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        size: std::mem::size_of::<Mat4>() as u64,
+        mapped_at_creation: false,
     });
 
-    let rotation_bind_group_layout =
+    let transform_bind_group_layout =
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("rotation binding group layout"),
+            label: Some("transform binding group layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::VERTEX,
@@ -80,12 +81,12 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
             }],
         });
 
-    let rotation_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("rotation binding group"),
-        layout: &rotation_bind_group_layout,
+    let transform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("transform binding group"),
+        layout: &transform_bind_group_layout,
         entries: &[wgpu::BindGroupEntry {
             binding: 0,
-            resource: rotation_buf.as_entire_binding(),
+            resource: transform_buf.as_entire_binding(),
         }],
     });
 
@@ -114,7 +115,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: None,
-        bind_group_layouts: &[&rotation_bind_group_layout],
+        bind_group_layouts: &[&transform_bind_group_layout],
         push_constant_ranges: &[],
     });
 
@@ -196,22 +197,19 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                                     occlusion_query_set: None,
                                 });
                             rpass.set_pipeline(&render_pipeline);
-                            rpass.set_bind_group(0, &rotation_bind_group, &[]);
+                            rpass.set_bind_group(0, &transform_bind_group, &[]);
                             rpass.set_vertex_buffer(0, vertex_buf.slice(..));
                             rpass.draw(0..3, 0..1);
                         }
 
                         let current_time = time_start.elapsed().as_secs_f32();
-                        let rotation_mat = nalgebra_glm::rotate::<f32>(
-                            &Mat4::identity(),
-                            nalgebra_glm::radians(&Vec1::new(current_time)).x,
-                            &Vec3::new(0.0, 0.0, 1.0),
-                        );
+                        let transform_mat =
+                            compute_mat(current_time, config.width as f32 / config.height as f32);
 
                         queue.write_buffer(
-                            &rotation_buf,
+                            &transform_buf,
                             0,
-                            bytemuck::cast_slice(rotation_mat.as_slice()),
+                            bytemuck::cast_slice(transform_mat.as_ref()),
                         );
                         queue.submit(Some(encoder.finish()));
                         frame.present();
