@@ -1,3 +1,4 @@
+mod rmodel;
 use glam::Mat4;
 use std::{borrow::Cow, sync::Arc, time::Instant};
 use wgpu::util::DeviceExt;
@@ -342,7 +343,7 @@ impl App {
         });
 
         let config = surface
-            .get_default_config(&adapter, texture.width(), texture.height())
+            .get_default_config(&adapter, size.width, size.height)
             .unwrap();
         surface.configure(&device, &config);
 
@@ -483,13 +484,16 @@ fn compute_mat(deg: f32, aspect: f32) -> Mat4 {
     proj * view * model
 }
 
-pub fn main() {
-    let event_loop = EventLoop::new().unwrap();
+pub fn main() -> anyhow::Result<()> {
+    let mut fil = std::fs::File::open("/home/user/Desktop/WIN11-vm-folder/scripts/out/chr000/BB/obj/chr/chr000/model/chr000.rModel")?;
+    let model = crate::rmodel::Model::new(&mut fil)?;
+
+    let event_loop = EventLoop::new()?;
 
     event_loop.set_control_flow(ControlFlow::Poll);
     #[allow(unused_mut)]
     let mut builder = winit::window::WindowBuilder::new();
-    let window = Arc::new(builder.build(&event_loop).unwrap());
+    let window = Arc::new(builder.build(&event_loop)?);
 
     env_logger::init();
 
@@ -513,6 +517,8 @@ pub fn main() {
                     _ => {}
                 };
             }
-        })
-        .unwrap();
+        })?
+        ;
+
+        Ok(())
 }
