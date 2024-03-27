@@ -1,5 +1,6 @@
 mod rmodel;
 use glam::Mat4;
+use rmodel::Model;
 use std::{borrow::Cow, sync::Arc, time::Instant};
 use wgpu::util::DeviceExt;
 use winit::{
@@ -7,127 +8,6 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::Window,
 };
-
-struct Texture {
-    size: (u32, u32),
-    bind_group: wgpu::BindGroup,
-    bind_group_layout: wgpu::BindGroupLayout,
-}
-
-impl Texture {
-    fn new(device: &wgpu::Device, queue: &wgpu::Queue, bytes: &[u8]) -> Texture {
-        let image = image::load_from_memory(bytes).unwrap().flipv(); // image coords -> wgpu coords
-
-        let image = image.as_rgba8().unwrap();
-
-        let image_dimensions = image.dimensions();
-
-        let texture_size = wgpu::Extent3d {
-            width: image_dimensions.0,
-            height: image_dimensions.1,
-            depth_or_array_layers: 1,
-        };
-
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("awesome texture"),
-            size: texture_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-
-        queue.write_texture(
-            wgpu::ImageCopyTexture {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &image,
-            wgpu::ImageDataLayout {
-                offset: 0,
-                bytes_per_row: Some(4 * image_dimensions.0),
-                rows_per_image: Some(image_dimensions.1),
-            },
-            texture_size,
-        );
-
-        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let texture_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("awesome texture sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        });
-
-        let texture_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("texture binding group layout"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-            });
-
-        let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("texture binding group"),
-            layout: &texture_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&texture_sampler),
-                },
-            ],
-        });
-
-        Texture {
-            size: image_dimensions,
-            bind_group: texture_bind_group,
-            bind_group_layout: texture_bind_group_layout,
-        }
-    }
-
-    fn width(&self) -> u32 {
-        self.size.0
-    }
-
-    fn height(&self) -> u32 {
-        self.size.1
-    }
-
-    fn bind_group(&self) -> &wgpu::BindGroup {
-        &self.bind_group
-    }
-
-    fn bind_group_layout(&self) -> &wgpu::BindGroupLayout {
-        &self.bind_group_layout
-    }
-}
 
 struct App {
     window: Arc<Window>,
@@ -139,14 +19,10 @@ struct App {
     device: wgpu::Device,
     queue: wgpu::Queue,
 
-    render_pipeline: wgpu::RenderPipeline,
+    model: Model,
 
-    vertex_buf: wgpu::Buffer,
-    index_buf: wgpu::Buffer,
     transform_buf: wgpu::Buffer,
     transform_bind_group: wgpu::BindGroup,
-
-    awesome_texture: Texture,
 
     depth_texture: Option<wgpu::Texture>,
     depth_texture_view: Option<wgpu::TextureView>,
@@ -186,68 +62,6 @@ impl App {
             .await
             .expect("Failed to create device");
 
-        #[rustfmt::skip]
-        let vertices: [f32; 36*5] = [
-            -0.5, -0.5, -0.5,  0.0, 0.0,
-            0.5, -0.5, -0.5,  1.0, 0.0,
-            0.5,  0.5, -0.5,  1.0, 1.0,
-            0.5,  0.5, -0.5,  1.0, 1.0,
-            -0.5,  0.5, -0.5,  0.0, 1.0,
-            -0.5, -0.5, -0.5,  0.0, 0.0,
-
-            -0.5, -0.5,  0.5,  0.0, 0.0,
-            0.5, -0.5,  0.5,  1.0, 0.0,
-            0.5,  0.5,  0.5,  1.0, 1.0,
-            0.5,  0.5,  0.5,  1.0, 1.0,
-            -0.5,  0.5,  0.5,  0.0, 1.0,
-            -0.5, -0.5,  0.5,  0.0, 0.0,
-
-            -0.5,  0.5,  0.5,  1.0, 0.0,
-            -0.5,  0.5, -0.5,  1.0, 1.0,
-            -0.5, -0.5, -0.5,  0.0, 1.0,
-            -0.5, -0.5, -0.5,  0.0, 1.0,
-            -0.5, -0.5,  0.5,  0.0, 0.0,
-            -0.5,  0.5,  0.5,  1.0, 0.0,
-
-            0.5,  0.5,  0.5,  1.0, 0.0,
-            0.5,  0.5, -0.5,  1.0, 1.0,
-            0.5, -0.5, -0.5,  0.0, 1.0,
-            0.5, -0.5, -0.5,  0.0, 1.0,
-            0.5, -0.5,  0.5,  0.0, 0.0,
-            0.5,  0.5,  0.5,  1.0, 0.0,
-
-            -0.5, -0.5, -0.5,  0.0, 1.0,
-            0.5, -0.5, -0.5,  1.0, 1.0,
-            0.5, -0.5,  0.5,  1.0, 0.0,
-            0.5, -0.5,  0.5,  1.0, 0.0,
-            -0.5, -0.5,  0.5,  0.0, 0.0,
-            -0.5, -0.5, -0.5,  0.0, 1.0,
-
-            -0.5,  0.5, -0.5,  0.0, 1.0,
-            0.5,  0.5, -0.5,  1.0, 1.0,
-            0.5,  0.5,  0.5,  1.0, 0.0,
-            0.5,  0.5,  0.5,  1.0, 0.0,
-            -0.5,  0.5,  0.5,  0.0, 0.0,
-            -0.5,  0.5, -0.5,  0.0, 1.0
-        ];
-
-        let indices: [u16; 6] = [
-            0, 1, 3, // first triangle
-            1, 2, 3, // second triangle
-        ];
-
-        let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("vertex buffer"),
-            contents: bytemuck::cast_slice(&vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
-        let index_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("index buffer"),
-            contents: bytemuck::cast_slice(&indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-
         let transform_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("transform buffer"),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
@@ -279,68 +93,11 @@ impl App {
             }],
         });
 
-        let vertex_buffers = [wgpu::VertexBufferLayout {
-            array_stride: (5 * std::mem::size_of::<f32>()) as u64, // 3 pos, 2 texcoord
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x3,
-                    offset: 0,
-                    shader_location: 0,
-                },
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x2,
-                    offset: 3 * std::mem::size_of::<f32>() as u64, // + 3 pos
-                    shader_location: 2,
-                },
-            ],
-        }];
-
-        let texture = Texture::new(&device, &queue, include_bytes!("awesomeface.png"));
-
-        // Load the shaders from disk
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: None,
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shader.wgsl"))),
-        });
-
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[&transform_bind_group_layout, &texture.bind_group_layout()],
-            push_constant_ranges: &[],
-        });
-
         let swapchain_capabilities = surface.get_capabilities(&adapter);
         let swapchain_format = swapchain_capabilities.formats[0];
 
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: None,
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: "vs_main",
-                buffers: &vertex_buffers,
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: swapchain_format,
-                    write_mask: wgpu::ColorWrites::ALL,
-                    blend: None,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth24Plus,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-        });
+        let mut fil = std::fs::File::open("/home/user/Desktop/WIN11-vm-folder/scripts/out/place0100/GO/place/p0100/p0100.rModel").unwrap();
+        let model = Model::new(&mut fil, &device, swapchain_format).unwrap();
 
         let config = surface
             .get_default_config(&adapter, size.width, size.height)
@@ -357,14 +114,11 @@ impl App {
             surface,
             device,
             queue,
-            render_pipeline,
 
-            vertex_buf,
-            index_buf,
+            model,
+
             transform_buf,
             transform_bind_group,
-
-            awesome_texture: texture,
 
             depth_texture: None,
             depth_texture_view: None,
@@ -439,34 +193,16 @@ impl App {
         );
 
         {
-            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: None,
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: self.depth_texture_view.as_ref().unwrap(),
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-
-            rpass.set_pipeline(&self.render_pipeline);
-            rpass.set_bind_group(0, &self.transform_bind_group, &[]);
-            rpass.set_bind_group(1, &self.awesome_texture.bind_group(), &[]);
-            rpass.set_vertex_buffer(0, self.vertex_buf.slice(..));
-            // rpass.set_index_buffer(self.index_buf.slice(..), wgpu::IndexFormat::Uint16);
-            rpass.draw(0..36, 0..1);
+            self.model.render(
+                &view,
+                &self.depth_texture_view.as_ref().unwrap(),
+                &mut encoder,
+            );
+            // rpass.set_pipeline(&self.render_pipeline);
+            // rpass.set_bind_group(0, &self.transform_bind_group, &[]);
+            // rpass.set_vertex_buffer(0, self.vertex_buf.slice(..));
+            // // rpass.set_index_buffer(self.index_buf.slice(..), wgpu::IndexFormat::Uint16);
+            // rpass.draw(0..36, 0..1);
         }
 
         self.queue.submit(Some(encoder.finish()));
@@ -485,9 +221,6 @@ fn compute_mat(deg: f32, aspect: f32) -> Mat4 {
 }
 
 pub fn main() -> anyhow::Result<()> {
-    let mut fil = std::fs::File::open("/home/user/Desktop/WIN11-vm-folder/scripts/out/chr000/BB/obj/chr/chr000/model/chr000.rModel")?;
-    let model = crate::rmodel::Model::new(&mut fil)?;
-
     let event_loop = EventLoop::new()?;
 
     event_loop.set_control_flow(ControlFlow::Poll);
@@ -499,26 +232,24 @@ pub fn main() -> anyhow::Result<()> {
 
     let mut app = pollster::block_on(App::new(window));
 
-    event_loop
-        .run(move |event, target| {
-            if let Event::WindowEvent {
-                window_id: _,
-                event,
-            } = event
-            {
-                match event {
-                    WindowEvent::Resized(new_size) => {
-                        app.resize(&new_size);
-                    }
-                    WindowEvent::RedrawRequested => {
-                        app.render();
-                    }
-                    WindowEvent::CloseRequested => target.exit(),
-                    _ => {}
-                };
-            }
-        })?
-        ;
+    event_loop.run(move |event, target| {
+        if let Event::WindowEvent {
+            window_id: _,
+            event,
+        } = event
+        {
+            match event {
+                WindowEvent::Resized(new_size) => {
+                    app.resize(&new_size);
+                }
+                WindowEvent::RedrawRequested => {
+                    app.render();
+                }
+                WindowEvent::CloseRequested => target.exit(),
+                _ => {}
+            };
+        }
+    })?;
 
-        Ok(())
+    Ok(())
 }

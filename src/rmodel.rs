@@ -1,5 +1,11 @@
 use bytemuck::{Pod, Zeroable};
-use std::{ffi::CStr, io::{Read, Seek}};
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    ffi::CStr,
+    io::{Read, Seek},
+};
+use wgpu::{util::DeviceExt, TextureFormat};
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable, Debug)]
@@ -109,14 +115,27 @@ struct PRIMITIVE_INFO {
     boundary: u64, // struct BOUNDARY_INFO *
 }
 
+impl PRIMITIVE_INFO {
+    fn vertex_stride(&self) -> u32 {
+        (self.very_large_bitfield >> 16) & 0xFF
+    }
+}
+
 pub struct Model {
     primitives: Vec<PRIMITIVE_INFO>,
+
     vertexbuf: wgpu::Buffer,
     indexbuf: wgpu::Buffer,
+
+    pipelines: HashMap<u32, wgpu::RenderPipeline>,
 }
 
 impl Model {
-    pub fn new<R: Read + Seek>(reader: &mut R) -> anyhow::Result<Model> {
+    pub fn new<R: Read + Seek>(
+        reader: &mut R,
+        device: &wgpu::Device,
+        swapchain_format: TextureFormat,
+    ) -> anyhow::Result<Model> {
         assert_eq!(std::mem::size_of::<MODEL_HDR>(), 0xa0);
         assert_eq!(std::mem::size_of::<PRIMITIVE_INFO>(), 0x38);
         let mut header_bytes: [u8; 0xa0] = [0; 0xa0];
@@ -124,28 +143,42 @@ impl Model {
 
         let header: &MODEL_HDR = bytemuck::try_from_bytes(&header_bytes).unwrap();
 
-        // println!("{:#?}", header);
+        println!("{:#?}", header);
 
         let mut material_bytes = vec![0u8; header.material_num as usize * 128];
         reader.seek(std::io::SeekFrom::Start(header.material_info as u64))?;
         reader.read_exact(&mut material_bytes)?;
-        let materials: Vec<String> = (0..header.material_num as usize).map(|material_idx| {
-            let material_name_bytes = &material_bytes[material_idx * 128..(material_idx + 1) * 128];
-            let material_name = CStr::from_bytes_until_nul(material_name_bytes).unwrap().to_string_lossy();
-            material_name.to_string()
-            // println!("material {}: {}", material_idx, material_name);
-        }).collect();
+        let materials: Vec<String> = (0..header.material_num as usize)
+            .map(|material_idx| {
+                let material_name_bytes =
+                    &material_bytes[material_idx * 128..(material_idx + 1) * 128];
+                let material_name = CStr::from_bytes_until_nul(material_name_bytes)
+                    .unwrap()
+                    .to_string_lossy();
+                material_name.to_string()
+                // println!("material {}: {}", material_idx, material_name);
+            })
+            .collect();
 
         let mut primitive_arr_bytes = vec![0u8; header.primitive_num as usize * 0x38];
         reader.seek(std::io::SeekFrom::Start(header.primitive_info as u64))?;
         reader.read_exact(&mut primitive_arr_bytes)?;
-        let primitives: Vec<PRIMITIVE_INFO> = (0..header.primitive_num as usize).map( |primitive_idx| {
-            let primitive_bytes = &primitive_arr_bytes[primitive_idx * 0x38..(primitive_idx + 1) * 0x38];
-            let primitive: &PRIMITIVE_INFO = bytemuck::try_from_bytes(&primitive_bytes).unwrap();
+        let primitives: Vec<PRIMITIVE_INFO> = (0..header.primitive_num as usize)
+            .map(|primitive_idx| {
+                let primitive_bytes =
+                    &primitive_arr_bytes[primitive_idx * 0x38..(primitive_idx + 1) * 0x38];
+                let primitive: &PRIMITIVE_INFO =
+                    bytemuck::try_from_bytes(&primitive_bytes).unwrap();
 
-            println!("primitive {}: {:#?}", primitive_idx, primitive);
-            primitive.clone()
-        }).collect();
+                println!(
+                    "primitive {}: {} {:#?}",
+                    primitive_idx,
+                    primitive.vertex_stride(),
+                    primitive
+                );
+                primitive.clone()
+            })
+            .collect();
 
         let mut vertexbuf_bytes = vec![0u8; header.vertexbuf_size as usize];
         reader.seek(std::io::SeekFrom::Start(header.vertex_data))?;
@@ -155,6 +188,139 @@ impl Model {
         reader.seek(std::io::SeekFrom::Start(header.index_data))?;
         reader.read_exact(&mut bytemuck::cast_slice_mut(&mut indexbuf_bytes))?;
 
-        Ok(Self { primitives, vertexbuf: todo!(), indexbuf: todo!() })
+        let vertexbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("rModel vertex buffer"),
+            contents: &vertexbuf_bytes,
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let indexbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("rModel index buffer"),
+            contents: bytemuck::cast_slice(&indexbuf_bytes),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
+        // Load the shaders from disk
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: None,
+            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shader.wgsl"))),
+        });
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[],
+            push_constant_ranges: &[],
+        });
+
+        let mut pipelines = HashMap::new();
+        for primitive in &primitives {
+            pipelines
+                .entry(primitive.vertex_stride())
+                .or_insert_with(|| {
+                    let vertex_buffer_layouts = [wgpu::VertexBufferLayout {
+                        array_stride: primitive.vertex_stride().into(),
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &[wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x3,
+                            offset: 0,
+                            shader_location: 0,
+                        }],
+                    }];
+
+                    let render_pipeline =
+                        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                            label: Some(
+                                format!(
+                                    "rModel render pipeline for: stride {}",
+                                    primitive.vertex_stride()
+                                )
+                                .leak(),
+                            ),
+                            layout: Some(&pipeline_layout),
+                            vertex: wgpu::VertexState {
+                                module: &shader,
+                                entry_point: "vs_main",
+                                buffers: &vertex_buffer_layouts,
+                            },
+                            fragment: Some(wgpu::FragmentState {
+                                module: &shader,
+                                entry_point: "fs_main",
+                                targets: &[Some(wgpu::ColorTargetState {
+                                    format: swapchain_format,
+                                    write_mask: wgpu::ColorWrites::ALL,
+                                    blend: None,
+                                })],
+                            }),
+                            primitive: wgpu::PrimitiveState {
+                                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                                strip_index_format: Some(wgpu::IndexFormat::Uint16),
+                                ..Default::default()
+                            },
+                            depth_stencil: Some(wgpu::DepthStencilState {
+                                format: wgpu::TextureFormat::Depth24Plus,
+                                depth_write_enabled: true,
+                                depth_compare: wgpu::CompareFunction::Less,
+                                stencil: wgpu::StencilState::default(),
+                                bias: wgpu::DepthBiasState::default(),
+                            }),
+                            multisample: wgpu::MultisampleState::default(),
+                            multiview: None,
+                        });
+
+                    render_pipeline
+                });
+        }
+
+        Ok(Self {
+            primitives,
+            vertexbuf,
+            indexbuf,
+            pipelines,
+        })
+    }
+
+    pub fn render(
+        &self,
+        view: &wgpu::TextureView,
+        depth_texture: &wgpu::TextureView,
+        encoder: &mut wgpu::CommandEncoder,
+    ) {
+        let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: depth_texture,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+
+        rpass.set_index_buffer(self.indexbuf.slice(..), wgpu::IndexFormat::Uint16);
+        for primitive in &self.primitives {
+            rpass.set_vertex_buffer(0, self.vertexbuf.slice(primitive.vertex_base as u64..));
+
+            let pipeline = self.pipelines.get(&primitive.vertex_stride()).unwrap();
+            rpass.set_pipeline(pipeline);
+            let index_ofs = primitive.index_ofs;
+            let index_num = primitive.index_num;
+
+            rpass.draw_indexed(
+                index_ofs..(index_ofs + index_num),
+                primitive.index_base as i32,
+                0..1,
+            )
+        }
     }
 }
