@@ -127,6 +127,8 @@ pub struct Model {
     vertexbuf: wgpu::Buffer,
     indexbuf: wgpu::Buffer,
 
+    primitive_ids: Vec<wgpu::BindGroup>,
+
     pipelines: HashMap<u32, wgpu::RenderPipeline>,
 }
 
@@ -134,6 +136,7 @@ impl Model {
     pub fn new<R: Read + Seek>(
         reader: &mut R,
         device: &wgpu::Device,
+        transform_bind_group_layout: &wgpu::BindGroupLayout,
         swapchain_format: TextureFormat,
     ) -> anyhow::Result<Model> {
         assert_eq!(std::mem::size_of::<MODEL_HDR>(), 0xa0);
@@ -206,14 +209,49 @@ impl Model {
             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shader.wgsl"))),
         });
 
+        let primitive_id_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("rModel primitive id bind group layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[],
+            bind_group_layouts: &[transform_bind_group_layout, &primitive_id_bind_group_layout],
             push_constant_ranges: &[],
         });
 
         let mut pipelines = HashMap::new();
-        for primitive in &primitives {
+        let mut primitive_ids: Vec<wgpu::BindGroup> = vec![];
+
+        for (idx, primitive) in primitives.iter().enumerate() {
+            let primitive_id_buffer =device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("rModel primitive id buffer"),
+                contents: bytemuck::cast_slice(&[idx as u32]),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+
+            let primitive_id_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("rModel primitive id bind group"),
+                layout: &primitive_id_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: primitive_id_buffer.as_entire_binding(),
+                }],
+            });
+
+            primitive_ids.push(primitive_id_bind_group);
+
+            // Create pipeline if needed
             pipelines
                 .entry(primitive.vertex_stride())
                 .or_insert_with(|| {
@@ -276,19 +314,21 @@ impl Model {
             vertexbuf,
             indexbuf,
             pipelines,
+            primitive_ids,
         })
     }
 
     pub fn render(
         &self,
-        view: &wgpu::TextureView,
+        color_view: &wgpu::TextureView,
         depth_texture: &wgpu::TextureView,
+        transform_bind_group: &wgpu::BindGroup,
         encoder: &mut wgpu::CommandEncoder,
     ) {
         let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view,
+                view: color_view,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
@@ -307,8 +347,12 @@ impl Model {
             occlusion_query_set: None,
         });
 
+        rpass.set_bind_group(0, &transform_bind_group, &[]);
         rpass.set_index_buffer(self.indexbuf.slice(..), wgpu::IndexFormat::Uint16);
-        for primitive in &self.primitives {
+        for (id, primitive) in self.primitives.iter().enumerate() {
+            rpass.set_bind_group(1, &self.primitive_ids[id], &[]);
+            // TODO: Should we try to make this as small as possible?
+            // XXX: What does vertex_ofs do
             rpass.set_vertex_buffer(0, self.vertexbuf.slice(primitive.vertex_base as u64..));
 
             let pipeline = self.pipelines.get(&primitive.vertex_stride()).unwrap();

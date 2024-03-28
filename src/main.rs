@@ -1,13 +1,14 @@
 mod rmodel;
 use glam::Mat4;
 use rmodel::Model;
-use std::{borrow::Cow, sync::Arc, time::Instant};
-use wgpu::util::DeviceExt;
+use std::{sync::Arc, time::Instant};
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::Window,
 };
+
+struct Camera {}
 
 struct App {
     window: Arc<Window>,
@@ -96,8 +97,17 @@ impl App {
         let swapchain_capabilities = surface.get_capabilities(&adapter);
         let swapchain_format = swapchain_capabilities.formats[0];
 
-        let mut fil = std::fs::File::open("/home/user/Desktop/WIN11-vm-folder/scripts/out/place0100/GO/place/p0100/p0100.rModel").unwrap();
-        let model = Model::new(&mut fil, &device, swapchain_format).unwrap();
+        let mut fil = std::fs::File::open(
+            "/home/user/Desktop/WIN11-vm-folder/scripts/out/place0100/GO/place/p0100/p0100.rModel",
+        )
+        .unwrap();
+        let model = Model::new(
+            &mut fil,
+            &device,
+            &transform_bind_group_layout,
+            swapchain_format,
+        )
+        .unwrap();
 
         let config = surface
             .get_default_config(&adapter, size.width, size.height)
@@ -196,13 +206,9 @@ impl App {
             self.model.render(
                 &view,
                 &self.depth_texture_view.as_ref().unwrap(),
+                &self.transform_bind_group,
                 &mut encoder,
             );
-            // rpass.set_pipeline(&self.render_pipeline);
-            // rpass.set_bind_group(0, &self.transform_bind_group, &[]);
-            // rpass.set_vertex_buffer(0, self.vertex_buf.slice(..));
-            // // rpass.set_index_buffer(self.index_buf.slice(..), wgpu::IndexFormat::Uint16);
-            // rpass.draw(0..36, 0..1);
         }
 
         self.queue.submit(Some(encoder.finish()));
@@ -213,9 +219,9 @@ impl App {
 }
 
 fn compute_mat(deg: f32, aspect: f32) -> Mat4 {
-    let model = glam::Mat4::from_rotation_x(deg) * glam::Mat4::from_rotation_y(deg);
-    let view = glam::Mat4::from_translation(glam::Vec3::new(0., 0., -3.));
-    let proj = glam::Mat4::perspective_rh(70.0_f32.to_radians(), aspect, 0.1, 100.0);
+    let model = glam::Mat4::IDENTITY;
+    let view = glam::Mat4::IDENTITY;
+    let proj = glam::Mat4::perspective_lh(70.0_f32.to_radians(), aspect, 1.0, 1000.0);
 
     proj * view * model
 }
