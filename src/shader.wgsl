@@ -7,10 +7,10 @@ var<uniform> transform: mat4x4<f32>;
 
 @vertex
 fn vs_main(
-        @location(0) position: vec3<f32>,
+        @location(0) position: vec4<f32>,
     ) -> VertexOutput {
     var out: VertexOutput;
-    out.position = transform * vec4(position, 1.0);
+    out.position = transform * vec4f(position.xyz, 1.f);
 
     return out;
 }
@@ -43,5 +43,5 @@ fn fs_main(vertex: VertexOutput) -> @location(0) vec4<f32> {
         vec3f(162,99,55)
     );
 
-    return vec4(colors[primitive_id] / 255, 1.f);
+    return vec4(colors[primitive_id % 20] / 255, 1.f);
 }

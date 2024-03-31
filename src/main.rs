@@ -1,19 +1,15 @@
 mod rmodel;
 use glam::Mat4;
 use rmodel::Model;
-use std::{sync::Arc, time::Instant};
+use std::sync::Arc;
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::Window,
 };
 
-struct Camera {}
-
 struct App {
     window: Arc<Window>,
-
-    time_start: Instant,
 
     config: wgpu::SurfaceConfiguration,
     surface: wgpu::Surface<'static>,
@@ -30,7 +26,7 @@ struct App {
 }
 
 impl App {
-    async fn new(window: Arc<Window>) -> App {
+    async fn new(window: Arc<Window>, args: &[String]) -> App {
         let mut size = window.inner_size();
         size.width = size.width.max(1);
         size.height = size.height.max(1);
@@ -97,10 +93,7 @@ impl App {
         let swapchain_capabilities = surface.get_capabilities(&adapter);
         let swapchain_format = swapchain_capabilities.formats[0];
 
-        let mut fil = std::fs::File::open(
-            "/home/user/Desktop/WIN11-vm-folder/scripts/out/place0100/GO/place/p0100/p0100.rModel",
-        )
-        .unwrap();
+        let mut fil = std::fs::File::open(&args[1]).unwrap();
         let model = Model::new(
             &mut fil,
             &device,
@@ -114,12 +107,9 @@ impl App {
             .unwrap();
         surface.configure(&device, &config);
 
-        let time_start = Instant::now();
-
         App {
             window,
 
-            time_start,
             config,
             surface,
             device,
@@ -188,9 +178,7 @@ impl App {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-        let current_time = self.time_start.elapsed().as_secs_f32();
         let transform_mat = compute_mat(
-            current_time,
             self.config.width as f32 / self.config.height as f32,
         );
 
@@ -218,15 +206,29 @@ impl App {
     }
 }
 
-fn compute_mat(deg: f32, aspect: f32) -> Mat4 {
-    let model = glam::Mat4::IDENTITY;
-    let view = glam::Mat4::IDENTITY;
-    let proj = glam::Mat4::perspective_lh(70.0_f32.to_radians(), aspect, 1.0, 1000.0);
+fn compute_mat(aspect: f32) -> Mat4 {
+    let model = glam::Mat4::IDENTITY; // glam::Mat4::from_scale(glam::vec3(10.,10.,10.));
+
+    let view ={
+        let camera_pos = glam::vec3(0., 0.5, 1.);
+        let camera_target = glam::vec3(0.0, 0.0, 0.0);
+        let camera_direction = (camera_pos - camera_target).normalize();
+
+        let up = glam::vec3(0., 1., 0.);
+        let camera_right = up.cross(camera_direction).normalize();
+        let camera_up = camera_direction.cross(camera_right).normalize();
+
+        let camera_front = glam::vec3(0., 0., -1.);
+
+        glam::Mat4::look_at_lh(camera_pos, camera_pos + camera_front, camera_up)
+    };
+    let proj = glam::Mat4::perspective_lh(70.0_f32.to_radians(), aspect, 0.01, 100.0);
 
     proj * view * model
 }
 
 pub fn main() -> anyhow::Result<()> {
+    let args: Vec<_> = std::env::args().collect();
     let event_loop = EventLoop::new()?;
 
     event_loop.set_control_flow(ControlFlow::Poll);
@@ -236,7 +238,7 @@ pub fn main() -> anyhow::Result<()> {
 
     env_logger::init();
 
-    let mut app = pollster::block_on(App::new(window));
+    let mut app = pollster::block_on(App::new(window, &args));
 
     event_loop.run(move |event, target| {
         if let Event::WindowEvent {
