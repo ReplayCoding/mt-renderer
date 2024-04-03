@@ -1,6 +1,5 @@
-mod rmodel;
 use glam::Mat4;
-use rmodel::Model;
+use mt_renderer::{rmodel::Model, rshader2::Shader2};
 use std::sync::Arc;
 use winit::{
     event::{Event, WindowEvent},
@@ -93,10 +92,14 @@ impl App {
         let swapchain_capabilities = surface.get_capabilities(&adapter);
         let swapchain_format = swapchain_capabilities.formats[0];
 
-        let mut fil = std::fs::File::open(&args[1]).unwrap();
+        let mut model_file = std::fs::File::open(&args[1]).unwrap();
+        let mut shader_file = std::fs::File::open("/home/user/Desktop/WIN11-vm-folder/TGAAC-for-research/nativeDX11x64/custom_shaders/CustomShaderPackage.mfx").unwrap();
+        let shader2 = Shader2::new(&mut shader_file).unwrap();
         let model = Model::new(
-            &mut fil,
+            &mut model_file,
             &device,
+            &shader2,
+
             &transform_bind_group_layout,
             swapchain_format,
         )

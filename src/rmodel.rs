@@ -1,4 +1,5 @@
 use bytemuck::{Pod, Zeroable};
+use log::debug;
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -6,6 +7,8 @@ use std::{
     io::{Read, Seek},
 };
 use wgpu::{util::DeviceExt, TextureFormat};
+
+use crate::rshader2::Shader2;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable, Debug)]
@@ -136,30 +139,29 @@ impl Model {
     pub fn new<R: Read + Seek>(
         reader: &mut R,
         device: &wgpu::Device,
+        shader2: &Shader2,
         transform_bind_group_layout: &wgpu::BindGroupLayout,
         swapchain_format: TextureFormat,
     ) -> anyhow::Result<Model> {
-        assert_eq!(std::mem::size_of::<MODEL_HDR>(), 0xa0);
-        assert_eq!(std::mem::size_of::<PRIMITIVE_INFO>(), 0x38);
         let mut header_bytes: [u8; 0xa0] = [0; 0xa0];
         reader.read_exact(&mut header_bytes)?;
 
         let header: &MODEL_HDR = bytemuck::try_from_bytes(&header_bytes).unwrap();
 
-        println!("{:#?}", header);
+        debug!("model header: {:#?}", header);
 
         let mut material_bytes = vec![0u8; header.material_num as usize * 128];
         reader.seek(std::io::SeekFrom::Start(header.material_info as u64))?;
         reader.read_exact(&mut material_bytes)?;
-        let materials: Vec<String> = (0..header.material_num as usize)
+        let _materials: Vec<String> = (0..header.material_num as usize)
             .map(|material_idx| {
                 let material_name_bytes =
                     &material_bytes[material_idx * 128..(material_idx + 1) * 128];
                 let material_name = CStr::from_bytes_until_nul(material_name_bytes)
                     .unwrap()
                     .to_string_lossy();
+
                 material_name.to_string()
-                // println!("material {}: {}", material_idx, material_name);
             })
             .collect();
 
@@ -173,10 +175,14 @@ impl Model {
                 let primitive: &PRIMITIVE_INFO =
                     bytemuck::try_from_bytes(&primitive_bytes).unwrap();
 
-                println!(
-                    "primitive {}: {} {:#?}",
+                let inputlayout_hash = (primitive.inputlayout & 0xfffff000) >> 0xc;
+                let inputlayout_obj = shader2.get_object_by_hash(inputlayout_hash);
+
+                debug!(
+                    "primitive {}: {} {:?} {:#?}",
                     primitive_idx,
                     primitive.vertex_stride(),
+                    inputlayout_obj,
                     primitive
                 );
                 primitive.clone()
@@ -234,11 +240,12 @@ impl Model {
         let mut primitive_ids: Vec<wgpu::BindGroup> = vec![];
 
         for (idx, primitive) in primitives.iter().enumerate() {
-            let primitive_id_buffer =device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("rModel primitive id buffer"),
-                contents: bytemuck::cast_slice(&[idx as u32]),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
+            let primitive_id_buffer =
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("rModel primitive id buffer"),
+                    contents: bytemuck::cast_slice(&[idx as u32]),
+                    usage: wgpu::BufferUsages::UNIFORM,
+                });
 
             let primitive_id_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("rModel primitive id bind group"),
@@ -367,4 +374,10 @@ impl Model {
             )
         }
     }
+}
+
+#[test]
+fn test_struct_sizes() {
+    assert_eq!(std::mem::size_of::<MODEL_HDR>(), 0xa0);
+    assert_eq!(std::mem::size_of::<PRIMITIVE_INFO>(), 0x38);
 }
