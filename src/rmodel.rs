@@ -8,7 +8,7 @@ use std::{
 };
 use wgpu::{util::DeviceExt, TextureFormat};
 
-use crate::rshader2::Shader2;
+use crate::rshader2::{Shader2, Shader2ObjectTypedInfo};
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable, Debug)]
@@ -176,13 +176,19 @@ impl Model {
                     bytemuck::try_from_bytes(&primitive_bytes).unwrap();
 
                 let inputlayout_hash = (primitive.inputlayout & 0xfffff000) >> 0xc;
-                let inputlayout_obj = shader2.get_object_by_hash(inputlayout_hash);
+                let inputlayout_obj =
+                    shader2
+                        .get_object_by_hash(inputlayout_hash)
+                        .expect(&format!(
+                            "invalid inputlayout hash {:08x}",
+                            inputlayout_hash
+                        ));
 
                 debug!(
-                    "primitive {}: {} {:?} {:#?}",
+                    "primitive {}: {} {} {:#?}",
                     primitive_idx,
                     primitive.vertex_stride(),
-                    inputlayout_obj,
+                    inputlayout_obj.name(),
                     primitive
                 );
                 primitive.clone()
@@ -262,14 +268,27 @@ impl Model {
             pipelines
                 .entry(primitive.vertex_stride())
                 .or_insert_with(|| {
+                    let inputlayout_hash = (primitive.inputlayout & 0xfffff000) >> 0xc;
+                    let inputlayout_obj =
+                        shader2
+                            .get_object_by_hash(inputlayout_hash)
+                            .expect(&format!(
+                                "invalid inputlayout hash {:08x}",
+                                inputlayout_hash
+                            ));
+
+                    let inputlayout_specific = if let Shader2ObjectTypedInfo::InputLayout(spec) = inputlayout_obj.obj_specific() {
+                        spec
+                    } else {
+                        unreachable!("primitive inputlayout isn't an inputlayout!")
+                    };
+
+                    let attributes = Shader2::create_vertex_buffer_elements(&inputlayout_specific);
+                    debug!("Creating layout for {}: {:#?}", inputlayout_obj.name(), attributes);
                     let vertex_buffer_layouts = [wgpu::VertexBufferLayout {
                         array_stride: primitive.vertex_stride().into(),
                         step_mode: wgpu::VertexStepMode::Vertex,
-                        attributes: &[wgpu::VertexAttribute {
-                            format: wgpu::VertexFormat::Snorm16x4,
-                            offset: 0,
-                            shader_location: 0,
-                        }],
+                        attributes: &attributes,
                     }];
 
                     let render_pipeline =

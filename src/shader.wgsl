@@ -7,10 +7,10 @@ var<uniform> transform: mat4x4<f32>;
 
 @vertex
 fn vs_main(
-        @location(0) position: vec4<f32>,
+        @location(0) position: vec3<f32>,
     ) -> VertexOutput {
     var out: VertexOutput;
-    out.position = transform * vec4f(position.xyz, 1.f);
+    out.position = transform * vec4f(position, 1.f);
 
     return out;
 }
