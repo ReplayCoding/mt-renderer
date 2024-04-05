@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::anyhow;
-use log::debug;
+use log::{debug, warn};
 
 #[repr(C, packed)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, Debug)]
@@ -48,24 +48,23 @@ struct RawShader2InputElement {
 
 #[derive(strum::FromRepr, Debug, PartialEq, Eq)]
 enum InputElementFormat {
-    IEF_UNDEFINED=0,
-    IEF_F32=1,
-    IEF_F16=2,
-    IEF_S16=3,
-    IEF_U16=4,
-    IEF_S16N=5,
-    IEF_U16N=6,
-    IEF_S8=7,
-    IEF_U8=8,
-    IEF_S8N=9,
-    IEF_U8N=10,
-    IEF_SCMP3N=11,
-    IEF_UCMP3N=12,
-    IEF_U8NL=13,
-    IEF_COLOR4N=14,
-    IEF_MAX=15
+    IEF_UNDEFINED = 0,
+    IEF_F32 = 1,
+    IEF_F16 = 2,
+    IEF_S16 = 3,
+    IEF_U16 = 4,
+    IEF_S16N = 5,
+    IEF_U16N = 6,
+    IEF_S8 = 7,
+    IEF_U8 = 8,
+    IEF_S8N = 9,
+    IEF_U8N = 10,
+    IEF_SCMP3N = 11,
+    IEF_UCMP3N = 12,
+    IEF_U8NL = 13,
+    IEF_COLOR4N = 14,
+    IEF_MAX = 15,
 }
-
 
 #[derive(Debug)]
 struct Shader2InputElement {
@@ -182,7 +181,10 @@ impl Shader2 {
                         let element_parsed = Shader2InputElement {
                             name: element_name.to_string_lossy().to_string(),
                             sindex: raw_element.bitfield & 0x3f,
-                            format: InputElementFormat::from_repr(((raw_element.bitfield >> 6) & 0x1f) as usize).unwrap(),
+                            format: InputElementFormat::from_repr(
+                                ((raw_element.bitfield >> 6) & 0x1f) as usize,
+                            )
+                            .unwrap(),
                             count: (raw_element.bitfield >> 11) & 0x7f,
                             start: (raw_element.bitfield >> 18) & 0x0f,
                             offset: (raw_element.bitfield >> 22) & 0x1ff,
@@ -223,86 +225,77 @@ impl Shader2 {
         })
     }
 
-    pub fn get_object_by_hash<'a>(&'a self, hash: u32) -> Option<&'a Shader2Object> {
+    pub fn objects(&self) -> &[Shader2Object] {
+        &self.objects
+    }
+
+    pub fn get_object_by_handle<'a>(&'a self, handle: u32) -> Option<&'a Shader2Object> {
+        let hash = (handle & 0xfffff000) >> 0xc;
         let idx = self.hash_to_object.get(&hash)?;
 
         Some(&self.objects[*idx])
     }
 
-    pub fn objects(&self) -> &[Shader2Object] {
-        &self.objects
-    }
-
-    pub fn create_vertex_buffer_elements(inputlayout: &Shader2ObjectInputLayoutInfo) -> Vec<wgpu::VertexAttribute> {
+    pub fn create_vertex_buffer_elements(
+        inputlayout: &Shader2ObjectInputLayoutInfo,
+    ) -> Vec<wgpu::VertexAttribute> {
         let mut elements = vec![];
 
         for (shader_location, element) in inputlayout.elements.iter().enumerate() {
             if element.format == InputElementFormat::IEF_SCMP3N {
-                debug!("Skipping element {:#?} for inputlayout {:#?}", element, inputlayout);
+                warn!("Skipping element {:#?}", element);
                 continue;
             }
 
             elements.push(wgpu::VertexAttribute {
                 format: match element.format {
-                    InputElementFormat::IEF_U8 => {
-                        match element.count {
-                            4 => wgpu::VertexFormat::Uint8x2,
-                            _ => todo!("unhandled count: {:#?}", element)
-                        }
-                    }
-                    InputElementFormat::IEF_U8N => {
-                        match element.count {
-                            1 => wgpu::VertexFormat::Unorm8x2,
-                            4 => wgpu::VertexFormat::Unorm8x4,
-                            _ => todo!("unhandled count: {:#?}", element)
-                        }
-                    }
+                    InputElementFormat::IEF_U8 => match element.count {
+                        4 => wgpu::VertexFormat::Uint8x2,
+                        _ => todo!("unhandled count: {:#?}", element),
+                    },
+                    InputElementFormat::IEF_U8N => match element.count {
+                        1 => wgpu::VertexFormat::Unorm8x2,
+                        4 => wgpu::VertexFormat::Unorm8x4,
+                        _ => todo!("unhandled count: {:#?}", element),
+                    },
                     InputElementFormat::IEF_S8N => {
                         match element.count {
                             1 => wgpu::VertexFormat::Snorm8x2, // There isn't a 8x1, so this is the closest we have
                             3 => wgpu::VertexFormat::Snorm8x4, // There isn't a 8x3, so this is the closest we have
                             4 => wgpu::VertexFormat::Snorm8x4,
-                            _ => todo!("unhandled count: {:#?}", element)
+                            _ => todo!("unhandled count: {:#?}", element),
                         }
                     }
                     InputElementFormat::IEF_S16N => {
                         match element.count {
                             1 => wgpu::VertexFormat::Snorm16x2, // There isn't a 16x1, so this is the closest we have
                             3 => wgpu::VertexFormat::Snorm16x4, // There isn't a 16x3, so this is the closest we have
-                            _ => todo!("unhandled count: {:#?}", element)
+                            _ => todo!("unhandled count: {:#?}", element),
                         }
                     }
                     InputElementFormat::IEF_S16 => {
                         match element.count {
                             1 => wgpu::VertexFormat::Sint16x2, // There isn't a 16x1, so this is the closest we have
-                            _ => todo!("unhandled count: {:#?}", element)
+                            _ => todo!("unhandled count: {:#?}", element),
                         }
                     }
-                    InputElementFormat::IEF_U16 => {
-                        match element.count {
-                            2 => wgpu::VertexFormat::Uint16x2,
-                            _ => todo!("unhandled count: {:#?}", element)
-                        }
-                    }
-                    InputElementFormat::IEF_F16 => {
-                        match element.count {
-                            2 => wgpu::VertexFormat::Float16x2,
-                            _ => todo!("unhandled count: {:#?}", element)
-                        }
-                    }
-                    InputElementFormat::IEF_F32 => {
-                        match element.count {
-                            3 => wgpu::VertexFormat::Float32x3,
-                            _ => todo!("unhandled count: {:#?}", element)
-                        }
-                    }
-                    InputElementFormat::IEF_U8NL => {
-                        match element.count {
-                            3 => wgpu::VertexFormat::Unorm8x4,
-                            _ => todo!("unhandled count: {:#?}", element)
-                        }
-                    }
-                    _ => todo!("unimplemented input element format: {:#?}", element)
+                    InputElementFormat::IEF_U16 => match element.count {
+                        2 => wgpu::VertexFormat::Uint16x2,
+                        _ => todo!("unhandled count: {:#?}", element),
+                    },
+                    InputElementFormat::IEF_F16 => match element.count {
+                        2 => wgpu::VertexFormat::Float16x2,
+                        _ => todo!("unhandled count: {:#?}", element),
+                    },
+                    InputElementFormat::IEF_F32 => match element.count {
+                        3 => wgpu::VertexFormat::Float32x3,
+                        _ => todo!("unhandled count: {:#?}", element),
+                    },
+                    InputElementFormat::IEF_U8NL => match element.count {
+                        3 => wgpu::VertexFormat::Unorm8x4,
+                        _ => todo!("unhandled count: {:#?}", element),
+                    },
+                    _ => todo!("unimplemented input element format: {:#?}", element),
                 },
                 offset: element.offset.into(),
                 shader_location: shader_location as u32,

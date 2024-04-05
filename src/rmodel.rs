@@ -1,5 +1,5 @@
 use bytemuck::{Pod, Zeroable};
-use log::debug;
+use log::{debug, info};
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -175,13 +175,12 @@ impl Model {
                 let primitive: &PRIMITIVE_INFO =
                     bytemuck::try_from_bytes(&primitive_bytes).unwrap();
 
-                let inputlayout_hash = (primitive.inputlayout & 0xfffff000) >> 0xc;
                 let inputlayout_obj =
                     shader2
-                        .get_object_by_hash(inputlayout_hash)
+                        .get_object_by_handle(primitive.inputlayout)
                         .expect(&format!(
-                            "invalid inputlayout hash {:08x}",
-                            inputlayout_hash
+                            "invalid inputlayout {:08x}",
+                            (primitive.inputlayout as u64) // blah
                         ));
 
                 debug!(
@@ -218,7 +217,7 @@ impl Model {
         // Load the shaders from disk
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shader.wgsl"))),
+            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shaders/shader.wgsl"))),
         });
 
         let primitive_id_bind_group_layout =
@@ -268,23 +267,27 @@ impl Model {
             pipelines
                 .entry(primitive.vertex_stride())
                 .or_insert_with(|| {
-                    let inputlayout_hash = (primitive.inputlayout & 0xfffff000) >> 0xc;
-                    let inputlayout_obj =
-                        shader2
-                            .get_object_by_hash(inputlayout_hash)
-                            .expect(&format!(
-                                "invalid inputlayout hash {:08x}",
-                                inputlayout_hash
-                            ));
+                    let inputlayout_obj = shader2
+                        .get_object_by_handle(primitive.inputlayout)
+                        .expect(&format!(
+                            "invalid inputlayout {:08x}",
+                            (primitive.inputlayout as u64) // blah
+                        ));
 
-                    let inputlayout_specific = if let Shader2ObjectTypedInfo::InputLayout(spec) = inputlayout_obj.obj_specific() {
+                    let inputlayout_specific = if let Shader2ObjectTypedInfo::InputLayout(spec) =
+                        inputlayout_obj.obj_specific()
+                    {
                         spec
                     } else {
                         unreachable!("primitive inputlayout isn't an inputlayout!")
                     };
 
                     let attributes = Shader2::create_vertex_buffer_elements(&inputlayout_specific);
-                    debug!("Creating layout for {}: {:#?}", inputlayout_obj.name(), attributes);
+                    info!(
+                        "Creating layout for {}: {:#?}",
+                        inputlayout_obj.name(),
+                        attributes
+                    );
                     let vertex_buffer_layouts = [wgpu::VertexBufferLayout {
                         array_stride: primitive.vertex_stride().into(),
                         step_mode: wgpu::VertexStepMode::Vertex,

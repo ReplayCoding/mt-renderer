@@ -1,4 +1,5 @@
 use glam::Mat4;
+use log::debug;
 use mt_renderer::{rmodel::Model, rshader2::Shader2};
 use std::sync::Arc;
 use winit::{
@@ -99,7 +100,6 @@ impl App {
             &mut model_file,
             &device,
             &shader2,
-
             &transform_bind_group_layout,
             swapchain_format,
         )
@@ -131,6 +131,7 @@ impl App {
     fn resize(&mut self, new_size: &winit::dpi::PhysicalSize<u32>) {
         self.config.width = new_size.width.max(1);
         self.config.height = new_size.height.max(1);
+        debug!("resize {:?}", new_size);
         self.surface.configure(&self.device, &self.config);
 
         // On macos the window needs to be redrawn manually after resizing
@@ -181,9 +182,7 @@ impl App {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-        let transform_mat = compute_mat(
-            self.config.width as f32 / self.config.height as f32,
-        );
+        let transform_mat = compute_mat(self.config.width as f32 / self.config.height as f32);
 
         self.update_depth_texture();
 
@@ -212,8 +211,8 @@ impl App {
 fn compute_mat(aspect: f32) -> Mat4 {
     let model = glam::Mat4::IDENTITY; // glam::Mat4::from_scale(glam::vec3(10.,10.,10.));
 
-    let view ={
-        let camera_pos = glam::vec3(0., 0.5, 300.);
+    let view = {
+        let camera_pos = glam::vec3(0., 0.5, 1.);
         let camera_target = glam::vec3(0.0, 0.0, 0.0);
         let camera_direction = (camera_pos - camera_target).normalize();
 
@@ -225,7 +224,7 @@ fn compute_mat(aspect: f32) -> Mat4 {
 
         glam::Mat4::look_at_lh(camera_pos, camera_pos + camera_front, camera_up)
     };
-    let proj = glam::Mat4::perspective_lh(70.0_f32.to_radians(), aspect, 1., 5000.0);
+    let proj = glam::Mat4::perspective_lh(70.0_f32.to_radians(), aspect, 0.01, 5.0);
 
     proj * view * model
 }
@@ -241,7 +240,7 @@ pub fn main() -> anyhow::Result<()> {
 
     env_logger::init();
 
-    let mut app = pollster::block_on(App::new(window, &args));
+    let mut app = pollster::block_on(App::new(window.clone(), &args));
 
     event_loop.run(move |event, target| {
         if let Event::WindowEvent {

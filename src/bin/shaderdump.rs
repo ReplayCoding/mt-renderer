@@ -1,6 +1,6 @@
 use mt_renderer::rshader2::Shader2;
 
-fn main() ->anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let args: Vec<_> = std::env::args().collect();
