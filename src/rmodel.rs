@@ -122,6 +122,14 @@ impl PRIMITIVE_INFO {
     fn vertex_stride(&self) -> u32 {
         (self.very_large_bitfield >> 16) & 0xFF
     }
+
+    fn parts_no(&self) -> u32 {
+        self.parts_material_lod & 0xFFF
+    }
+
+    fn material_no(&self) -> u32 {
+        (self.parts_material_lod >> 12) & 0xFFF
+    }
 }
 
 pub struct Model {
@@ -130,7 +138,7 @@ pub struct Model {
     vertexbuf: wgpu::Buffer,
     indexbuf: wgpu::Buffer,
 
-    primitive_ids: Vec<wgpu::BindGroup>,
+    debug_ids: Vec<wgpu::BindGroup>,
 
     pipelines: HashMap<u32, wgpu::RenderPipeline>,
 }
@@ -220,9 +228,9 @@ impl Model {
             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shaders/shader.wgsl"))),
         });
 
-        let primitive_id_bind_group_layout =
+        let debug_id_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("rModel primitive id bind group layout"),
+                label: Some("rModel debug id bind group layout"),
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::FRAGMENT,
@@ -237,31 +245,31 @@ impl Model {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[transform_bind_group_layout, &primitive_id_bind_group_layout],
+            bind_group_layouts: &[transform_bind_group_layout, &debug_id_bind_group_layout],
             push_constant_ranges: &[],
         });
 
         let mut pipelines = HashMap::new();
-        let mut primitive_ids: Vec<wgpu::BindGroup> = vec![];
+        let mut debug_ids: Vec<wgpu::BindGroup> = vec![];
 
-        for (idx, primitive) in primitives.iter().enumerate() {
-            let primitive_id_buffer =
+        for (_idx, primitive) in primitives.iter().enumerate() {
+            let debug_id_buffer =
                 device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("rModel primitive id buffer"),
-                    contents: bytemuck::cast_slice(&[idx as u32]),
+                    contents: bytemuck::cast_slice(&[primitive.material_no() as u32]),
                     usage: wgpu::BufferUsages::UNIFORM,
                 });
 
-            let primitive_id_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("rModel primitive id bind group"),
-                layout: &primitive_id_bind_group_layout,
+            let debug_id_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("rModel primitive debug id group"),
+                layout: &debug_id_bind_group_layout,
                 entries: &[wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: primitive_id_buffer.as_entire_binding(),
+                    resource: debug_id_buffer.as_entire_binding(),
                 }],
             });
 
-            primitive_ids.push(primitive_id_bind_group);
+            debug_ids.push(debug_id_bind_group);
 
             // Create pipeline if needed
             pipelines
@@ -343,7 +351,7 @@ impl Model {
             vertexbuf,
             indexbuf,
             pipelines,
-            primitive_ids,
+            debug_ids,
         })
     }
 
@@ -379,7 +387,7 @@ impl Model {
         rpass.set_bind_group(0, &transform_bind_group, &[]);
         rpass.set_index_buffer(self.indexbuf.slice(..), wgpu::IndexFormat::Uint16);
         for (id, primitive) in self.primitives.iter().enumerate() {
-            rpass.set_bind_group(1, &self.primitive_ids[id], &[]);
+            rpass.set_bind_group(1, &self.debug_ids[id], &[]);
             // TODO: Should we try to make this as small as possible?
             // XXX: What does vertex_ofs do
             rpass.set_vertex_buffer(0, self.vertexbuf.slice(primitive.vertex_base as u64..));
