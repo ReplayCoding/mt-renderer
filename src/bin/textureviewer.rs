@@ -1,5 +1,5 @@
 use log::debug;
-use mt_renderer::rtexture::{self, TextureFile};
+use mt_renderer::rtexture::TextureFile;
 use std::{borrow::Cow, sync::Arc};
 use wgpu::util::DeviceExt;
 use winit::{
@@ -27,7 +27,7 @@ impl Texture {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2, // TODO: fill this in from resource
-                format: wgpu::TextureFormat::Bc1RgbaUnormSrgb,
+                format: resource.format().wgpu_type(),
                 usage: wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             },
@@ -110,6 +110,7 @@ struct App {
 
     texture: Texture,
     pipeline: wgpu::RenderPipeline,
+    vertex_buffer: wgpu::Buffer,
 }
 
 impl App {
@@ -147,20 +148,43 @@ impl App {
             .expect("Failed to create device");
 
         let swapchain_capabilities = surface.get_capabilities(&adapter);
-        let swapchain_format = swapchain_capabilities.formats[0];
+        let swapchain_format = *swapchain_capabilities
+            .formats
+            .iter()
+            .find(|f| !f.is_srgb())
+            .expect("couldn't get a non-srgb swapchain");
 
-        let config = surface
+        let mut config = surface
             .get_default_config(&adapter, size.width, size.height)
             .unwrap();
+        config.format = swapchain_format;
         surface.configure(&device, &config);
 
         let mut f = std::fs::File::open(&args[1]).unwrap();
         let texture_resource = TextureFile::new(&mut f).unwrap();
         let texture = Texture::new(&device, &queue, texture_resource);
 
+        #[rustfmt::skip]
+        let vertex_buf_data: [f32; 6 * 2] = [
+            -1., -1.,
+            -1.,  1.,
+             1.,  1.,
+             1., -1.,
+             1.,  1.,
+            -1., -1.,
+        ];
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("vertex buffer"),
+            contents: bytemuck::cast_slice(&vertex_buf_data),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("shader"),
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("../shaders/textured.wgsl"))),
+            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!(
+                "../shaders/textured.wgsl"
+            ))),
         });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -175,7 +199,15 @@ impl App {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main",
-                buffers: &[],
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: (std::mem::size_of::<f32>() * 2) as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &[wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Float32x2,
+                        offset: 0,
+                        shader_location: 0,
+                    }],
+                }],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -206,6 +238,7 @@ impl App {
 
             texture,
             pipeline,
+            vertex_buffer,
         }
     }
 
@@ -253,6 +286,7 @@ impl App {
             });
 
             rpass.set_pipeline(&self.pipeline);
+            rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             rpass.set_bind_group(0, self.texture.bind_group(), &[]);
             rpass.draw(0..6, 0..1);
         }

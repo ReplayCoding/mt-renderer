@@ -62,6 +62,16 @@ pub enum FormatType {
     FORMAT_A8_UNORM_WHITE = 54,
 }
 
+impl FormatType {
+    pub fn wgpu_type(&self) -> wgpu::TextureFormat {
+        match self {
+            Self::FORMAT_BC1_UNORM => wgpu::TextureFormat::Bc1RgbaUnorm,
+            Self::FORMAT_R8G8B8A8_UNORM => wgpu::TextureFormat::Rgba8Unorm,
+            _ => todo!("unhandled texture format {:?}", self),
+        }
+    }
+}
+
 #[derive(strum::FromRepr, Debug, PartialEq, Eq)]
 enum TextureType {
     TT_UNDEFINED = 0,
@@ -120,10 +130,11 @@ impl HEADER {
 
         TextureType::from_repr(v as usize).unwrap()
     }
+    fn format_raw(&self) -> u32 {
+        (self.bitfield_c >> 8) & 0xff
+    }
     fn format(&self) -> FormatType {
-        let v = (self.bitfield_c >> 8) & 0xff;
-
-        FormatType::from_repr(v as usize).unwrap()
+        FormatType::from_repr(self.format_raw() as usize).unwrap()
     }
     fn array_count(&self) -> u32 {
         self.bitfield_c & 0xff
@@ -149,13 +160,14 @@ impl TextureFile {
 
         debug!("HEADER: {:#?}", header);
         debug!(
-            "v: {:04x} pb: {} w: {} h: {} t: {:?} f: {:?} ac: {} lc: {}",
+            "v: {:04x} pb: {} w: {} h: {} t: {:?} f: {:?} ({}) ac: {} lc: {}",
             header.version(),
             header.prebias(),
             header.width(),
             header.height(),
             header.image_type(),
             header.format(),
+            header.format_raw(),
             header.array_count(),
             header.level_count(),
         );
@@ -172,7 +184,7 @@ impl TextureFile {
         println!("offsets: {:08x?}", unk_offsets);
 
         // TEMP HACK
-        assert_eq!(unk_offsets.len(), 1);
+        // assert_eq!(unk_offsets.len(), 1);
 
         let offset = unk_offsets[0];
         reader.seek(std::io::SeekFrom::Start(offset))?;

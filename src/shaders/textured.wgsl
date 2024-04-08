@@ -5,21 +5,12 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(
-        @builtin(vertex_index) idx: u32
+        @location(0) pos: vec2f
     ) -> VertexOutput {
-    var verts = array<vec2f, 6>(
-        vec2f(-1, -1),
-        vec2f(-1, 1),
-        vec2f(1, 1),
-
-        vec2f(1, -1),
-        vec2f(1, 1),
-        vec2f(-1, -1),
-    );
 
     var out: VertexOutput;
-    out.pos = vec4f(verts[idx], 0., 1.);
-    out.texcoord = (verts[idx] + 1) / 2;
+    out.pos = vec4f(pos, 0., 1.);
+    out.texcoord = (pos + 1) / 2;
     return out;
 }
 
