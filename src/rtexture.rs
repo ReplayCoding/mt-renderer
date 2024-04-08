@@ -68,6 +68,7 @@ impl FormatType {
         match self {
             Self::FORMAT_BC1_UNORM => wgpu::TextureFormat::Bc1RgbaUnorm,
             Self::FORMAT_R8G8B8A8_UNORM => wgpu::TextureFormat::Rgba8Unorm,
+            Self::FORMAT_A8_UNORM_WHITE => wgpu::TextureFormat::R8Unorm,
             _ => todo!("unhandled texture format {:?}", self),
         }
     }
@@ -107,14 +108,14 @@ enum TextureType {
 // 	+---
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
-struct HEADER {
+struct TextureHeader {
     magic: u32,
     bitfield_4: u32,
     bitfield_8: u32,
     bitfield_c: u32,
 }
 
-impl HEADER {
+impl TextureHeader {
     fn version(&self) -> u32 {
         self.bitfield_4 & 0xffff
     }
@@ -156,11 +157,11 @@ pub struct TextureFile {
 
 impl TextureFile {
     pub fn new<R: Read + Seek>(reader: &mut R) -> anyhow::Result<Self> {
-        let mut header_bytes = [0u8; std::mem::size_of::<HEADER>()];
+        let mut header_bytes = [0u8; std::mem::size_of::<TextureHeader>()];
         reader.read_exact(&mut header_bytes)?;
-        let header: &HEADER = bytemuck::from_bytes(&header_bytes);
+        let header: &TextureHeader = bytemuck::from_bytes(&header_bytes);
 
-        debug!("HEADER: {:#?}", header);
+        debug!("HEADER: {:#x?}", header);
         debug!(
             "v: {:04x} pb: {} w: {} h: {} t: {:?} f: {:?} ({}) ac: {} lc: {}",
             header.version(),
@@ -183,7 +184,7 @@ impl TextureFile {
             vec![0u8; ((header.array_count() * header.level_count()) << 3) as usize];
         reader.read_exact(&mut unk_offsets_bytes)?;
         let unk_offsets: &[u64] = bytemuck::cast_slice(&unk_offsets_bytes);
-        println!("offsets: {:08x?}", unk_offsets);
+        debug!("texture offsets: {:08x?}", unk_offsets);
 
         // TEMP HACK
         // assert_eq!(unk_offsets.len(), 1);
@@ -221,5 +222,5 @@ impl TextureFile {
 
 #[test]
 fn test_struct_sizes() {
-    assert_eq!(0x10, std::mem::size_of::<HEADER>());
+    assert_eq!(0x10, std::mem::size_of::<TextureHeader>());
 }

@@ -28,8 +28,8 @@ impl ModelViewerApp {
             let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("depth texture"),
                 size: wgpu::Extent3d {
-                    width: width,
-                    height: height,
+                    width,
+                    height,
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
@@ -145,7 +145,7 @@ fn compute_mat(aspect: f32) -> Mat4 {
     let model = glam::Mat4::IDENTITY; // glam::Mat4::from_scale(glam::vec3(10.,10.,10.));
 
     let view = {
-        let camera_pos = glam::vec3(0., 0.5, 1.);
+        let camera_pos = glam::vec3(0., 0.5, 2.);
         let camera_target = glam::vec3(0.0, 0.0, 0.0);
         let camera_direction = (camera_pos - camera_target).normalize();
 

@@ -104,7 +104,11 @@ struct TextureViewerApp {
 }
 
 impl RendererApp for TextureViewerApp {
-    fn setup(device: &wgpu::Device, queue: &wgpu::Queue, swapchain_format: wgpu::TextureFormat) -> anyhow::Result<Self> {
+    fn setup(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        swapchain_format: wgpu::TextureFormat,
+    ) -> anyhow::Result<Self> {
         let args: Vec<_> = std::env::args().collect();
 
         let mut f = std::fs::File::open(&args[1]).unwrap();
@@ -184,7 +188,7 @@ impl RendererApp for TextureViewerApp {
 
     fn render(
         &mut self,
-        manager: &RendererAppManagerInternal,
+        _manager: &RendererAppManagerInternal,
         frame_view: &wgpu::TextureView,
         encoder: &mut wgpu::CommandEncoder,
     ) -> anyhow::Result<()> {

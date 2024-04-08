@@ -53,7 +53,7 @@ struct MODEL_INFO {
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable, Debug)]
-struct MODEL_HDR {
+struct ModelHdr {
     magic: u32,
     version: u16,
     jnt_num: u16,
@@ -80,7 +80,7 @@ struct MODEL_HDR {
 
 #[repr(C, packed)]
 #[derive(Clone, Copy, Pod, Zeroable, Debug)]
-struct PRIMITIVE_INFO {
+struct PrimitiveInfo {
     // u32 draw_mode:16;
     // u32 vertex_num:16;
     drawmode_vertexnum: u32,
@@ -118,7 +118,7 @@ struct PRIMITIVE_INFO {
     boundary: u64, // struct BOUNDARY_INFO *
 }
 
-impl PRIMITIVE_INFO {
+impl PrimitiveInfo {
     fn vertex_stride(&self) -> u32 {
         (self.very_large_bitfield >> 16) & 0xFF
     }
@@ -133,7 +133,8 @@ impl PRIMITIVE_INFO {
 }
 
 pub struct Model {
-    primitives: Vec<PRIMITIVE_INFO>,
+    material_names: Vec<String>,
+    primitives: Vec<PrimitiveInfo>,
 
     vertexbuf: wgpu::Buffer,
     indexbuf: wgpu::Buffer,
@@ -154,14 +155,14 @@ impl Model {
         let mut header_bytes: [u8; 0xa0] = [0; 0xa0];
         reader.read_exact(&mut header_bytes)?;
 
-        let header: &MODEL_HDR = bytemuck::try_from_bytes(&header_bytes).unwrap();
+        let header: &ModelHdr = bytemuck::try_from_bytes(&header_bytes).unwrap();
 
         debug!("model header: {:#?}", header);
 
         let mut material_bytes = vec![0u8; header.material_num as usize * 128];
         reader.seek(std::io::SeekFrom::Start(header.material_info as u64))?;
         reader.read_exact(&mut material_bytes)?;
-        let _materials: Vec<String> = (0..header.material_num as usize)
+        let material_names: Vec<String> = (0..header.material_num as usize)
             .map(|material_idx| {
                 let material_name_bytes =
                     &material_bytes[material_idx * 128..(material_idx + 1) * 128];
@@ -173,29 +174,23 @@ impl Model {
             })
             .collect();
 
+        debug!("materials: {:?}", material_names);
+
         let mut primitive_arr_bytes = vec![0u8; header.primitive_num as usize * 0x38];
         reader.seek(std::io::SeekFrom::Start(header.primitive_info as u64))?;
         reader.read_exact(&mut primitive_arr_bytes)?;
-        let primitives: Vec<PRIMITIVE_INFO> = (0..header.primitive_num as usize)
+        let primitives: Vec<PrimitiveInfo> = (0..header.primitive_num as usize)
             .map(|primitive_idx| {
                 let primitive_bytes =
                     &primitive_arr_bytes[primitive_idx * 0x38..(primitive_idx + 1) * 0x38];
-                let primitive: &PRIMITIVE_INFO =
-                    bytemuck::try_from_bytes(&primitive_bytes).unwrap();
-
-                let inputlayout_obj =
-                    shader2
-                        .get_object_by_handle(primitive.inputlayout)
-                        .expect(&format!(
-                            "invalid inputlayout {:08x}",
-                            (primitive.inputlayout as u64) // blah
-                        ));
+                let primitive: &PrimitiveInfo = bytemuck::try_from_bytes(&primitive_bytes).unwrap();
 
                 debug!(
-                    "primitive {}: {} {} {:#?}",
+                    "primitive {}: stride {} (mat {}: {}) {:#?}",
                     primitive_idx,
                     primitive.vertex_stride(),
-                    inputlayout_obj.name(),
+                    primitive.material_no() as usize,
+                    &material_names[primitive.material_no() as usize],
                     primitive
                 );
                 primitive.clone()
@@ -253,12 +248,11 @@ impl Model {
         let mut debug_ids: Vec<wgpu::BindGroup> = vec![];
 
         for (_idx, primitive) in primitives.iter().enumerate() {
-            let debug_id_buffer =
-                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("rModel primitive id buffer"),
-                    contents: bytemuck::cast_slice(&[primitive.material_no() as u32]),
-                    usage: wgpu::BufferUsages::UNIFORM,
-                });
+            let debug_id_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("rModel primitive id buffer"),
+                contents: bytemuck::cast_slice(&[primitive.material_no() as u32]),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
 
             let debug_id_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("rModel primitive debug id group"),
@@ -352,6 +346,7 @@ impl Model {
             indexbuf,
             pipelines,
             debug_ids,
+            material_names,
         })
     }
 
@@ -408,6 +403,6 @@ impl Model {
 
 #[test]
 fn test_struct_sizes() {
-    assert_eq!(std::mem::size_of::<MODEL_HDR>(), 0xa0);
-    assert_eq!(std::mem::size_of::<PRIMITIVE_INFO>(), 0x38);
+    assert_eq!(std::mem::size_of::<ModelHdr>(), 0xa0);
+    assert_eq!(std::mem::size_of::<PrimitiveInfo>(), 0x38);
 }
