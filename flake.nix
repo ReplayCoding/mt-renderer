@@ -11,6 +11,7 @@
           nativeBuildInputs = with pkgs; [ rustc cargo rustfmt clippy ];
 
           shellHook = ''
+            export VULKAN_SDK = "${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d"
             export LD_LIBRARY_PATH=/run/opengl-driver/lib/:${
               pkgs.lib.makeLibraryPath (with pkgs; [
                 libglvnd

@@ -47,6 +47,7 @@ struct RawShader2InputElement {
 }
 
 #[derive(strum::FromRepr, Debug, PartialEq, Eq)]
+#[allow(non_camel_case_types, unused)]
 enum InputElementFormat {
     IEF_UNDEFINED = 0,
     IEF_F32 = 1,
@@ -248,6 +249,7 @@ impl Shader2 {
             }
 
             elements.push(wgpu::VertexAttribute {
+                // TODO: verify this against nDraw::InputLayout::addVertexElement
                 format: match element.format {
                     InputElementFormat::IEF_U8 => match element.count {
                         4 => wgpu::VertexFormat::Uint8x2,
