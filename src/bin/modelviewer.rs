@@ -1,21 +1,11 @@
 use glam::Mat4;
-use log::debug;
-use mt_renderer::{rmodel::Model, rshader2::Shader2};
-use std::sync::Arc;
-use winit::{
-    event::{Event, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
-    window::Window,
+use mt_renderer::{
+    renderer_app_manager::{RendererApp, RendererAppManager, RendererAppManagerInternal},
+    rmodel::Model,
+    rshader2::Shader2,
 };
 
-struct App {
-    window: Arc<Window>,
-
-    config: wgpu::SurfaceConfiguration,
-    surface: wgpu::Surface<'static>,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-
+struct ModelViewerApp {
     model: Model,
 
     transform_buf: wgpu::Buffer,
@@ -25,39 +15,49 @@ struct App {
     depth_texture_view: Option<wgpu::TextureView>,
 }
 
-impl App {
-    async fn new(window: Arc<Window>, args: &[String]) -> App {
-        let mut size = window.inner_size();
-        size.width = size.width.max(1);
-        size.height = size.height.max(1);
+impl ModelViewerApp {
+    fn update_depth_texture(&mut self, device: &wgpu::Device, width: u32, height: u32) {
+        if let Some(depth_texture) = &self.depth_texture {
+            if depth_texture.width() != width || depth_texture.height() != height {
+                self.depth_texture = None;
+                self.depth_texture_view = None;
+            }
+        }
 
-        let instance = wgpu::Instance::default();
-
-        let surface = instance.create_surface(window.clone()).unwrap();
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
-                force_fallback_adapter: false,
-                // Request an adapter which can render to our surface
-                compatible_surface: Some(&surface),
-            })
-            .await
-            .expect("Failed to find an appropriate adapter");
-
-        // Create the logical device and command queue
-        let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: None,
-                    required_features: wgpu::Features::empty(),
-                    // Make sure we use the texture resolution limits from the adapter, so we can support images the size of the swapchain.
-                    required_limits: wgpu::Limits::downlevel_webgl2_defaults()
-                        .using_resolution(adapter.limits()),
+        if self.depth_texture.is_none() {
+            let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("depth texture"),
+                size: wgpu::Extent3d {
+                    width: width,
+                    height: height,
+                    depth_or_array_layers: 1,
                 },
-                None,
-            )
-            .await
-            .expect("Failed to create device");
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Depth24Plus,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            });
+
+            self.depth_texture_view =
+                Some(depth_texture.create_view(&wgpu::TextureViewDescriptor::default()));
+            self.depth_texture = Some(depth_texture);
+        }
+    }
+}
+
+impl RendererApp for ModelViewerApp {
+    fn setup(
+        device: &wgpu::Device,
+        _queue: &wgpu::Queue,
+        swapchain_format: wgpu::TextureFormat,
+    ) -> anyhow::Result<Self> {
+        let args: Vec<_> = std::env::args().collect();
+
+        let mut model_file = std::fs::File::open(&args[1])?;
+        let mut shader_file = std::fs::File::open("/home/user/Desktop/WIN11-vm-folder/TGAAC-for-research/nativeDX11x64/custom_shaders/CustomShaderPackage.mfx")?;
+        let shader2 = Shader2::new(&mut shader_file)?;
 
         let transform_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("transform buffer"),
@@ -90,34 +90,15 @@ impl App {
             }],
         });
 
-        let swapchain_capabilities = surface.get_capabilities(&adapter);
-        let swapchain_format = swapchain_capabilities.formats[0];
-
-        let mut model_file = std::fs::File::open(&args[1]).unwrap();
-        let mut shader_file = std::fs::File::open("/home/user/Desktop/WIN11-vm-folder/TGAAC-for-research/nativeDX11x64/custom_shaders/CustomShaderPackage.mfx").unwrap();
-        let shader2 = Shader2::new(&mut shader_file).unwrap();
         let model = Model::new(
             &mut model_file,
             &device,
             &shader2,
             &transform_bind_group_layout,
             swapchain_format,
-        )
-        .unwrap();
+        )?;
 
-        let config = surface
-            .get_default_config(&adapter, size.width, size.height)
-            .unwrap();
-        surface.configure(&device, &config);
-
-        App {
-            window,
-
-            config,
-            surface,
-            device,
-            queue,
-
+        Ok(ModelViewerApp {
             model,
 
             transform_buf,
@@ -125,86 +106,38 @@ impl App {
 
             depth_texture: None,
             depth_texture_view: None,
-        }
+        })
     }
 
-    fn resize(&mut self, new_size: &winit::dpi::PhysicalSize<u32>) {
-        self.config.width = new_size.width.max(1);
-        self.config.height = new_size.height.max(1);
-        debug!("resize {:?}", new_size);
-        self.surface.configure(&self.device, &self.config);
+    fn render(
+        &mut self,
+        manager: &RendererAppManagerInternal,
+        frame_view: &wgpu::TextureView,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> anyhow::Result<()> {
+        // FIXME: this should probably be handled by manager
+        self.update_depth_texture(
+            manager.device(),
+            manager.config().width,
+            manager.config().height,
+        );
 
-        // On macos the window needs to be redrawn manually after resizing
-        self.window.request_redraw();
-    }
-
-    fn update_depth_texture(&mut self) {
-        if let Some(depth_texture) = &self.depth_texture {
-            if depth_texture.width() != self.config.width
-                || depth_texture.height() != self.config.height
-            {
-                self.depth_texture = None;
-                self.depth_texture_view = None;
-            }
-        }
-
-        if self.depth_texture.is_none() {
-            let depth_texture = self.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("depth texture"),
-                size: wgpu::Extent3d {
-                    width: self.config.width,
-                    height: self.config.height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Depth24Plus,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                view_formats: &[],
-            });
-
-            self.depth_texture_view =
-                Some(depth_texture.create_view(&wgpu::TextureViewDescriptor::default()));
-            self.depth_texture = Some(depth_texture);
-        }
-    }
-
-    fn render(&mut self) {
-        let frame = self
-            .surface
-            .get_current_texture()
-            .expect("Failed to acquire next swap chain texture");
-        let view = frame
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
-        let transform_mat = compute_mat(self.config.width as f32 / self.config.height as f32);
-
-        self.update_depth_texture();
-
-        self.queue.write_buffer(
+        let transform_mat =
+            compute_mat(manager.config().width as f32 / manager.config().height as f32);
+        manager.queue().write_buffer(
             &self.transform_buf,
             0,
             bytemuck::cast_slice(transform_mat.as_ref()),
         );
 
-        {
-            self.model.render(
-                &view,
-                &self.depth_texture_view.as_ref().unwrap(),
-                &self.transform_bind_group,
-                &mut encoder,
-            );
-        }
+        self.model.render(
+            frame_view,
+            &self.depth_texture_view.as_ref().unwrap(),
+            &self.transform_bind_group,
+            encoder,
+        );
 
-        self.queue.submit(Some(encoder.finish()));
-        frame.present();
-
-        self.window.request_redraw();
+        Ok(())
     }
 }
 
@@ -230,36 +163,5 @@ fn compute_mat(aspect: f32) -> Mat4 {
 }
 
 pub fn main() -> anyhow::Result<()> {
-    let args: Vec<_> = std::env::args().collect();
-    let event_loop = EventLoop::new()?;
-
-    event_loop.set_control_flow(ControlFlow::Poll);
-    #[allow(unused_mut)]
-    let mut builder = winit::window::WindowBuilder::new();
-    let window = Arc::new(builder.build(&event_loop)?);
-
-    env_logger::init();
-
-    let mut app = pollster::block_on(App::new(window.clone(), &args));
-
-    event_loop.run(move |event, target| {
-        if let Event::WindowEvent {
-            window_id: _,
-            event,
-        } = event
-        {
-            match event {
-                WindowEvent::Resized(new_size) => {
-                    app.resize(&new_size);
-                }
-                WindowEvent::RedrawRequested => {
-                    app.render();
-                }
-                WindowEvent::CloseRequested => target.exit(),
-                _ => {}
-            };
-        }
-    })?;
-
-    Ok(())
+    RendererAppManager::<ModelViewerApp>::run()
 }

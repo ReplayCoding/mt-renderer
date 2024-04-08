@@ -4,6 +4,7 @@ use bytemuck::{Pod, Zeroable};
 use log::debug;
 
 #[derive(strum::FromRepr, Debug, Copy, Clone)]
+#[allow(non_camel_case_types, unused)]
 pub enum FormatType {
     FORMAT_UNKNOWN = 0,
     FORMAT_R32G32B32A32_FLOAT = 1,
@@ -73,6 +74,7 @@ impl FormatType {
 }
 
 #[derive(strum::FromRepr, Debug, PartialEq, Eq)]
+#[allow(non_camel_case_types, unused)]
 enum TextureType {
     TT_UNDEFINED = 0,
     TT_1D = 1,
