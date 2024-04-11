@@ -93,6 +93,7 @@ pub enum Shader2ObjectTypedInfo {
 pub struct Shader2Object {
     name: String,
     sname: Option<String>,
+    // TODO: Import enum from DWARF build
     obj_type: u32,
     hash: u32,
 

@@ -13,9 +13,12 @@ bytemuck = { version = "1.14.3", features = ["derive"] }
 byteorder = "1.5.0"
 env_logger = "0.11.2"
 glam = "0.25.0"
-image = "0.24.9"
 log = "0.4.20"
+phf = "0.11.2"
 pollster = "0.3.0"
 strum = { version = "0.26.2", features = ["derive"] }
 wgpu = "0.19.1"
 winit = "0.29.10"
+
+[build-dependencies]
+phf_codegen = "0.11.2"
