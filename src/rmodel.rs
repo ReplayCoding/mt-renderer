@@ -73,6 +73,20 @@ struct ModelHdr {
     modelinfo: MODEL_INFO,
 }
 
+#[repr(u32)]
+#[derive(strum::FromRepr, Debug)]
+pub enum PrimitiveTopology {
+    TriangleStrip = 4,
+}
+
+impl PrimitiveTopology {
+    pub fn to_wgpu(&self) -> wgpu::PrimitiveTopology {
+        match self {
+            PrimitiveTopology::TriangleStrip => wgpu::PrimitiveTopology::TriangleStrip,
+        }
+    }
+}
+
 #[repr(C, packed)]
 #[derive(Clone, Copy, Pod, Zeroable, Debug)]
 pub struct PrimitiveInfo {
@@ -144,6 +158,14 @@ impl PrimitiveInfo {
 
     pub fn index_num(&self) -> u32 {
         self.index_num
+    }
+
+    pub fn raw_topology(&self) -> u32 {
+        (self.very_large_bitfield >> 24) & 0x3f
+    }
+
+    pub fn topology(&self) -> PrimitiveTopology {
+        PrimitiveTopology::from_repr(self.raw_topology()).unwrap()
     }
 }
 

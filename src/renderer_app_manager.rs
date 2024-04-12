@@ -1,4 +1,4 @@
-use log::debug;
+use log::{debug, trace};
 use std::sync::Arc;
 use winit::{
     event::{Event, WindowEvent},
@@ -121,7 +121,7 @@ where
     fn resize(&mut self, new_size: &winit::dpi::PhysicalSize<u32>) {
         self.internal.config.width = new_size.width.max(1);
         self.internal.config.height = new_size.height.max(1);
-        debug!("resize window: {:?}", new_size);
+        trace!("resize window: {:?}", new_size);
         self.internal
             .surface
             .configure(&self.internal.device, &self.internal.config);

@@ -247,7 +247,7 @@ impl Shader2File {
             let shader_location = match element.name.as_str() {
                 "Position" => 0,
                 "TexCoord" => 1,
-                _ => continue
+                _ => continue,
             };
 
             if element.format == InputElementFormat::IEF_SCMP3N {

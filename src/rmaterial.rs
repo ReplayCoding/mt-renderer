@@ -290,7 +290,10 @@ impl MaterialFile {
             }
         }).collect();
 
-        Ok(Self { textures, materials })
+        Ok(Self {
+            textures,
+            materials,
+        })
     }
 
     pub fn textures(&self) -> &[String] {
@@ -304,7 +307,9 @@ impl MaterialFile {
     pub fn material_by_name(&self, name: &str) -> Option<&MaterialInfo> {
         let computed_hash = crate::crc32(name.as_bytes(), 0xffff_ffff);
 
-        self.materials.iter().find(|mat| mat.name_hash == computed_hash)
+        self.materials
+            .iter()
+            .find(|mat| mat.name_hash == computed_hash)
     }
 }
 

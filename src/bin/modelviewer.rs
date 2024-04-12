@@ -42,9 +42,10 @@ impl Model {
             .iter()
             .map(|path| {
                 // TODO: This is awful
-                let path = PathBuf::from("/home/user/Desktop/WIN11-vm-folder/scripts/out/chr040_eng")
-                    .join(PathBuf::from(&path.replace("\\", "/")))
-                    .with_extension("rTexture");
+                let path =
+                    PathBuf::from("/home/user/Desktop/WIN11-vm-folder/scripts/out/chr218_eng")
+                        .join(PathBuf::from(&path.replace("\\", "/")))
+                        .with_extension("rTexture");
                 info!("Loading texture {:?}", path);
                 let mut file = std::fs::File::open(&path).unwrap();
                 let texture = TextureFile::new(&mut file).unwrap();
@@ -113,7 +114,19 @@ impl Model {
         let mut pipelines = HashMap::new();
         let mut debug_ids: Vec<wgpu::BindGroup> = vec![];
 
-        for (_idx, primitive) in model_file.primitives().iter().enumerate() {
+        let primitives: Vec<_> = model_file
+            .primitives()
+            .to_vec()
+            .into_iter()
+            .filter(|prim| {
+                let mat_name = &model_file.material_names()[prim.material_no() as usize];
+                let mat_info = material_file.material_by_name(&mat_name).unwrap();
+
+                mat_info.mat_type() == "nDraw::MaterialToon"
+            })
+            .collect();
+
+        for (_idx, primitive) in primitives.iter().enumerate() {
             let debug_id_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("rModel primitive id buffer"),
                 contents: bytemuck::cast_slice(&[primitive.material_no() as u32]),
@@ -167,13 +180,16 @@ impl Model {
                         unreachable!("primitive inputlayout isn't an inputlayout!")
                     };
 
+                    let material_name = &model_file.material_names()[primitive.material_no() as usize];
                     let attributes =
                         Shader2File::create_vertex_buffer_elements(&inputlayout_specific);
                     info!(
-                        "Creating layout for {}: {:#?} (textured {})",
+                        "Creating layout for {}: {:#?} (textured {}) (mat {}) (topo {:?})",
                         inputlayout_obj.name(),
                         attributes,
                         textured,
+                        material_name,
+                        primitive.topology()
                     );
 
                     let vertex_buffer_layouts = [wgpu::VertexBufferLayout {
@@ -192,10 +208,12 @@ impl Model {
                         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                             label: Some(
                                 format!(
-                                    "rModel render pipeline for: stride {} textured {} inputlayout {}",
+                                    "rModel render pipeline for: stride {} textured {} inputlayout {} material {} topology {:?}",
                                     primitive.vertex_stride(),
                                     textured,
-                                    inputlayout_obj.name()
+                                    inputlayout_obj.name(),
+                                    material_name,
+                                    primitive.inputlayout()
                                 )
                                 .leak(),
                             ),
@@ -215,7 +233,7 @@ impl Model {
                                 })],
                             }),
                             primitive: wgpu::PrimitiveState {
-                                topology: wgpu::PrimitiveTopology::TriangleStrip, // TODO: Use primitive topology
+                                topology: primitive.topology().to_wgpu(),
                                 strip_index_format: Some(wgpu::IndexFormat::Uint16),
                                 ..Default::default()
                             },
@@ -239,7 +257,7 @@ impl Model {
             indexbuf,
             pipelines,
             debug_ids,
-            primitives: model_file.primitives().to_vec(),
+            primitives,
             textures,
             mat_to_tex,
         })
@@ -282,6 +300,7 @@ impl Model {
             if let Some(tex_idx) = self.mat_to_tex[primitive.material_no() as usize] {
                 rpass.set_bind_group(2, self.textures[tex_idx].bind_group(), &[]);
             };
+
             // TODO: Should we try to make this as small as possible?
             // XXX: What does vertex_ofs do
             rpass.set_vertex_buffer(0, self.vertexbuf.slice(primitive.vertex_base() as u64..));

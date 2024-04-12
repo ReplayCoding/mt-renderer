@@ -8,7 +8,7 @@ use log::debug;
 pub enum FormatType {
     FORMAT_R8G8B8A8_UNORM = 7,
     FORMAT_BC1_UNORM = 19,
-    FORMAT_A8_UNORM_WHITE = 54,
+    FORMAT_BC7_UNORM = 54,
 }
 
 impl FormatType {
@@ -16,7 +16,7 @@ impl FormatType {
         match self {
             Self::FORMAT_BC1_UNORM => wgpu::TextureFormat::Bc1RgbaUnorm,
             Self::FORMAT_R8G8B8A8_UNORM => wgpu::TextureFormat::Rgba8Unorm,
-            Self::FORMAT_A8_UNORM_WHITE => wgpu::TextureFormat::Bc7RgbaUnorm,
+            Self::FORMAT_BC7_UNORM => wgpu::TextureFormat::Bc7RgbaUnorm,
             _ => todo!("unhandled texture format {:?}", self),
         }
     }

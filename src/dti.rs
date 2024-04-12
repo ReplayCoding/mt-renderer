@@ -16,6 +16,10 @@ fn test_dti_hashes() {
     // Make sure the hashes match up with the names
     for (hash, name) in DTI_MAP.entries() {
         let hash_computed = crc32(name.as_bytes(), u32::MAX) & 0x7fffffff;
-        assert_eq!(*hash, hash_computed, "'{}' {:08x} != {:08x}", name, hash, hash_computed)
+        assert_eq!(
+            *hash, hash_computed,
+            "'{}' {:08x} != {:08x}",
+            name, hash, hash_computed
+        )
     }
 }

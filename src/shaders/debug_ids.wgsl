@@ -43,6 +43,5 @@ fn fs_main(vertex: VertexOutput) -> @location(0) vec4<f32> {
         vec3f(162,99,55)
     );
 
-    discard;
-    // return vec4(colors[debug_id % 20] / 255, 1.f);
+    return vec4(colors[debug_id % 20] / 255, 1.f);
 }
