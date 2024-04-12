@@ -5,7 +5,7 @@ use std::{
 
 use log::{debug, warn};
 
-use crate::{dti, rshader2::Shader2};
+use crate::{dti, rshader2::Shader2File};
 
 #[repr(C, packed)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -144,10 +144,34 @@ impl RawMaterialInfo {
 }
 
 #[derive(Debug)]
-pub struct MaterialFile {}
+pub struct MaterialInfo {
+    name_hash: u32,
+    mat_type: &'static str,
+    albedo_texture_idx: Option<usize>, // HACK
+}
+
+impl MaterialInfo {
+    pub fn name_hash(&self) -> u32 {
+        self.name_hash
+    }
+
+    pub fn mat_type(&self) -> &'static str {
+        &self.mat_type
+    }
+
+    pub fn albedo_texture_idx(&self) -> Option<usize> {
+        self.albedo_texture_idx
+    }
+}
+
+#[derive(Debug)]
+pub struct MaterialFile {
+    textures: Vec<String>, // TODO: how does DTI affect this? This'll work fine for now i hope
+    materials: Vec<MaterialInfo>,
+}
 
 impl MaterialFile {
-    pub fn new<R: Read + Seek>(reader: &mut R, shader2: &Shader2) -> anyhow::Result<Self> {
+    pub fn new<R: Read + Seek>(reader: &mut R, shader2: &Shader2File) -> anyhow::Result<Self> {
         let mut header_bytes = [0u8; std::mem::size_of::<MaterialHeader>()];
         reader.read_exact(&mut header_bytes)?;
         let header: &MaterialHeader = bytemuck::from_bytes(&header_bytes);
@@ -163,7 +187,7 @@ impl MaterialFile {
 
                 let texture_path = texture_info.path();
                 let texture_dti = texture_info.dti();
-                assert_ne!(texture_dti, None);
+                assert_eq!(texture_dti, Some("rTexture")); // HACK
                 debug!(
                     "texture {}: dti {:?} path \"{}\"",
                     i, texture_dti, texture_path
@@ -173,14 +197,14 @@ impl MaterialFile {
             })
             .collect();
 
-        for material_idx in 0..header.material_num {
+        let materials: Vec<_> = (0..header.material_num).map(|material_idx | {
             reader.seek(std::io::SeekFrom::Start(
                 header.materials
                     + (material_idx as u64 * std::mem::size_of::<RawMaterialInfo>() as u64),
-            ))?;
+            )).unwrap();
 
             let mut material_info_bytes = [0u8; std::mem::size_of::<RawMaterialInfo>()];
-            reader.read_exact(&mut material_info_bytes)?;
+            reader.read_exact(&mut material_info_bytes).unwrap();
             let material_info: &RawMaterialInfo = bytemuck::from_bytes(&material_info_bytes[..]);
 
             debug!(
@@ -205,14 +229,15 @@ impl MaterialFile {
             );
             // debug!("{:#?}", material_info);
 
+            let mut albedo_texture_idx = None;
             for state_idx in 0..material_info.state_num() {
                 reader.seek(std::io::SeekFrom::Start(
                     material_info.states
                         + (state_idx as u64 * std::mem::size_of::<RawMaterialState>() as u64),
-                ))?;
+                )).unwrap();
 
                 let mut state_bytes = [0u8; std::mem::size_of::<RawMaterialState>()];
-                reader.read_exact(&mut state_bytes)?;
+                reader.read_exact(&mut state_bytes).unwrap();
                 let state: &RawMaterialState = bytemuck::from_bytes(&state_bytes);
 
                 let state_sh_obj = shader2.get_object_by_handle(state.sh_crc()).unwrap();
@@ -248,14 +273,38 @@ impl MaterialFile {
                                 state.sh_value(),
                                 textures[(state.sh_value() - 1) as usize]
                             );
+
+                            if state_sh_obj.name() == "tAlbedoMap" {
+                                albedo_texture_idx = Some((state.sh_value() - 1) as usize);
+                            }
                         }
                     }
                     _ => {}
                 }
             }
-        }
 
-        Ok(Self {})
+            MaterialInfo {
+                name_hash: material_info.name_hash(),
+                mat_type: material_info.dti(),
+                albedo_texture_idx,
+            }
+        }).collect();
+
+        Ok(Self { textures, materials })
+    }
+
+    pub fn textures(&self) -> &[String] {
+        &self.textures
+    }
+
+    pub fn materials(&self) -> &[MaterialInfo] {
+        &self.materials
+    }
+
+    pub fn material_by_name(&self, name: &str) -> Option<&MaterialInfo> {
+        let computed_hash = crate::crc32(name.as_bytes(), 0xffff_ffff);
+
+        self.materials.iter().find(|mat| mat.name_hash == computed_hash)
     }
 }
 

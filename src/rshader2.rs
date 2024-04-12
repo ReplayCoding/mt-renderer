@@ -110,12 +110,12 @@ impl Shader2Object {
     }
 }
 
-pub struct Shader2 {
+pub struct Shader2File {
     hash_to_object: HashMap<u32, usize>,
     objects: Vec<Shader2Object>,
 }
 
-impl Shader2 {
+impl Shader2File {
     pub fn new<R: Read + Seek>(reader: &mut R) -> anyhow::Result<Self> {
         let mut file_data: Vec<u8> = vec![];
         reader.read_to_end(&mut file_data)?;
@@ -243,7 +243,13 @@ impl Shader2 {
     ) -> Vec<wgpu::VertexAttribute> {
         let mut elements = vec![];
 
-        for (shader_location, element) in inputlayout.elements.iter().enumerate() {
+        for element in inputlayout.elements.iter() {
+            let shader_location = match element.name.as_str() {
+                "Position" => 0,
+                "TexCoord" => 1,
+                _ => continue
+            };
+
             if element.format == InputElementFormat::IEF_SCMP3N {
                 warn!("Skipping element {:#?}", element);
                 continue;

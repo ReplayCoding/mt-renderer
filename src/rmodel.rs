@@ -1,14 +1,9 @@
 use bytemuck::{Pod, Zeroable};
-use log::{debug, info};
+use log::debug;
 use std::{
-    borrow::Cow,
-    collections::HashMap,
     ffi::CStr,
     io::{Read, Seek},
 };
-use wgpu::{util::DeviceExt, TextureFormat};
-
-use crate::rshader2::{Shader2, Shader2ObjectTypedInfo};
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable, Debug)]
@@ -80,7 +75,7 @@ struct ModelHdr {
 
 #[repr(C, packed)]
 #[derive(Clone, Copy, Pod, Zeroable, Debug)]
-struct PrimitiveInfo {
+pub struct PrimitiveInfo {
     // u32 draw_mode:16;
     // u32 vertex_num:16;
     drawmode_vertexnum: u32,
@@ -119,39 +114,48 @@ struct PrimitiveInfo {
 }
 
 impl PrimitiveInfo {
-    fn vertex_stride(&self) -> u32 {
+    pub fn vertex_stride(&self) -> u32 {
         (self.very_large_bitfield >> 16) & 0xFF
     }
 
-    fn parts_no(&self) -> u32 {
+    pub fn parts_no(&self) -> u32 {
         self.parts_material_lod & 0xFFF
     }
 
-    fn material_no(&self) -> u32 {
+    pub fn material_no(&self) -> u32 {
         (self.parts_material_lod >> 12) & 0xFFF
+    }
+
+    pub fn inputlayout(&self) -> u32 {
+        self.inputlayout
+    }
+
+    pub fn vertex_base(&self) -> u32 {
+        self.vertex_base
+    }
+
+    pub fn index_ofs(&self) -> u32 {
+        self.index_ofs
+    }
+
+    pub fn index_base(&self) -> u32 {
+        self.index_base
+    }
+
+    pub fn index_num(&self) -> u32 {
+        self.index_num
     }
 }
 
-pub struct Model {
+pub struct ModelFile {
     material_names: Vec<String>,
     primitives: Vec<PrimitiveInfo>,
-
-    vertexbuf: wgpu::Buffer,
-    indexbuf: wgpu::Buffer,
-
-    debug_ids: Vec<wgpu::BindGroup>,
-
-    pipelines: HashMap<u32, wgpu::RenderPipeline>,
+    vertex_buf: Vec<u8>,
+    index_buf: Vec<u16>,
 }
 
-impl Model {
-    pub fn new<R: Read + Seek>(
-        reader: &mut R,
-        device: &wgpu::Device,
-        shader2: &Shader2,
-        transform_bind_group_layout: &wgpu::BindGroupLayout,
-        swapchain_format: TextureFormat,
-    ) -> anyhow::Result<Model> {
+impl ModelFile {
+    pub fn new<R: Read + Seek>(reader: &mut R) -> anyhow::Result<ModelFile> {
         let mut header_bytes: [u8; 0xa0] = [0; 0xa0];
         reader.read_exact(&mut header_bytes)?;
 
@@ -186,218 +190,47 @@ impl Model {
                 let primitive: &PrimitiveInfo = bytemuck::try_from_bytes(&primitive_bytes).unwrap();
 
                 debug!(
-                    "primitive {}: stride {} (mat {}: {}) {:#?}",
+                    "primitive {}: stride {} (mat {}: {}) layout {}",
                     primitive_idx,
                     primitive.vertex_stride(),
                     primitive.material_no() as usize,
                     &material_names[primitive.material_no() as usize],
-                    primitive
+                    (primitive.inputlayout() & 0xfffff000) >> 0xc
                 );
                 primitive.clone()
             })
             .collect();
 
-        let mut vertexbuf_bytes = vec![0u8; header.vertexbuf_size as usize];
+        let mut vertex_buf = vec![0u8; header.vertexbuf_size as usize];
         reader.seek(std::io::SeekFrom::Start(header.vertex_data))?;
-        reader.read_exact(&mut vertexbuf_bytes)?;
+        reader.read_exact(&mut vertex_buf)?;
 
-        let mut indexbuf_bytes = vec![0u16; header.index_num as usize];
+        let mut index_buf = vec![0u16; header.index_num as usize];
         reader.seek(std::io::SeekFrom::Start(header.index_data))?;
-        reader.read_exact(&mut bytemuck::cast_slice_mut(&mut indexbuf_bytes))?;
-
-        let vertexbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("rModel vertex buffer"),
-            contents: &vertexbuf_bytes,
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
-        let indexbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("rModel index buffer"),
-            contents: bytemuck::cast_slice(&indexbuf_bytes),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-
-        // Load the shaders from disk
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: None,
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shaders/debug_ids.wgsl"))),
-        });
-
-        let debug_id_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("rModel debug id bind group layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
-
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[transform_bind_group_layout, &debug_id_bind_group_layout],
-            push_constant_ranges: &[],
-        });
-
-        let mut pipelines = HashMap::new();
-        let mut debug_ids: Vec<wgpu::BindGroup> = vec![];
-
-        for (_idx, primitive) in primitives.iter().enumerate() {
-            let debug_id_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("rModel primitive id buffer"),
-                contents: bytemuck::cast_slice(&[primitive.material_no() as u32]),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
-
-            let debug_id_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("rModel primitive debug id group"),
-                layout: &debug_id_bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: debug_id_buffer.as_entire_binding(),
-                }],
-            });
-
-            debug_ids.push(debug_id_bind_group);
-
-            // Create pipeline if needed
-            pipelines
-                .entry(primitive.vertex_stride())
-                .or_insert_with(|| {
-                    let inputlayout_obj = shader2
-                        .get_object_by_handle(primitive.inputlayout)
-                        .expect(&format!(
-                            "invalid inputlayout {:08x}",
-                            (primitive.inputlayout as u64) // blah
-                        ));
-
-                    let inputlayout_specific = if let Shader2ObjectTypedInfo::InputLayout(spec) =
-                        inputlayout_obj.obj_specific()
-                    {
-                        spec
-                    } else {
-                        unreachable!("primitive inputlayout isn't an inputlayout!")
-                    };
-
-                    let attributes = Shader2::create_vertex_buffer_elements(&inputlayout_specific);
-                    info!(
-                        "Creating layout for {}: {:#?}",
-                        inputlayout_obj.name(),
-                        attributes
-                    );
-                    let vertex_buffer_layouts = [wgpu::VertexBufferLayout {
-                        array_stride: primitive.vertex_stride().into(),
-                        step_mode: wgpu::VertexStepMode::Vertex,
-                        attributes: &attributes,
-                    }];
-
-                    let render_pipeline =
-                        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                            label: Some(
-                                format!(
-                                    "rModel render pipeline for: stride {}",
-                                    primitive.vertex_stride()
-                                )
-                                .leak(),
-                            ),
-                            layout: Some(&pipeline_layout),
-                            vertex: wgpu::VertexState {
-                                module: &shader,
-                                entry_point: "vs_main",
-                                buffers: &vertex_buffer_layouts,
-                            },
-                            fragment: Some(wgpu::FragmentState {
-                                module: &shader,
-                                entry_point: "fs_main",
-                                targets: &[Some(wgpu::ColorTargetState {
-                                    format: swapchain_format,
-                                    write_mask: wgpu::ColorWrites::ALL,
-                                    blend: None,
-                                })],
-                            }),
-                            primitive: wgpu::PrimitiveState {
-                                topology: wgpu::PrimitiveTopology::TriangleStrip,
-                                strip_index_format: Some(wgpu::IndexFormat::Uint16),
-                                ..Default::default()
-                            },
-                            depth_stencil: Some(wgpu::DepthStencilState {
-                                format: wgpu::TextureFormat::Depth24Plus,
-                                depth_write_enabled: true,
-                                depth_compare: wgpu::CompareFunction::Less,
-                                stencil: wgpu::StencilState::default(),
-                                bias: wgpu::DepthBiasState::default(),
-                            }),
-                            multisample: wgpu::MultisampleState::default(),
-                            multiview: None,
-                        });
-
-                    render_pipeline
-                });
-        }
+        reader.read_exact(&mut bytemuck::cast_slice_mut(&mut index_buf))?;
 
         Ok(Self {
-            primitives,
-            vertexbuf,
-            indexbuf,
-            pipelines,
-            debug_ids,
             material_names,
+            primitives,
+            vertex_buf,
+            index_buf,
         })
     }
 
-    pub fn render(
-        &self,
-        color_view: &wgpu::TextureView,
-        depth_texture: &wgpu::TextureView,
-        transform_bind_group: &wgpu::BindGroup,
-        encoder: &mut wgpu::CommandEncoder,
-    ) {
-        let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: None,
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: color_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: depth_texture,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
-                    store: wgpu::StoreOp::Store,
-                }),
-                stencil_ops: None,
-            }),
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
+    pub fn index_buf(&self) -> &[u16] {
+        &self.index_buf
+    }
 
-        rpass.set_bind_group(0, &transform_bind_group, &[]);
-        rpass.set_index_buffer(self.indexbuf.slice(..), wgpu::IndexFormat::Uint16);
-        for (id, primitive) in self.primitives.iter().enumerate() {
-            rpass.set_bind_group(1, &self.debug_ids[id], &[]);
-            // TODO: Should we try to make this as small as possible?
-            // XXX: What does vertex_ofs do
-            rpass.set_vertex_buffer(0, self.vertexbuf.slice(primitive.vertex_base as u64..));
+    pub fn vertex_buf(&self) -> &[u8] {
+        &self.vertex_buf
+    }
 
-            let pipeline = self.pipelines.get(&primitive.vertex_stride()).unwrap();
-            rpass.set_pipeline(pipeline);
-            let index_ofs = primitive.index_ofs;
-            let index_num = primitive.index_num;
+    pub fn primitives(&self) -> &[PrimitiveInfo] {
+        &self.primitives
+    }
 
-            rpass.draw_indexed(
-                index_ofs..(index_ofs + index_num),
-                primitive.index_base as i32,
-                0..1,
-            )
-        }
+    pub fn material_names(&self) -> &[String] {
+        &self.material_names
     }
 }
 
