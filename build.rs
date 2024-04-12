@@ -19,7 +19,7 @@ fn build_dti_map() {
     // having two games packaged into one executable
     let mut handled_entries: HashSet<u32> = HashSet::new();
     for line in dtis.lines() {
-        let fields: Vec<&str> = line.split(",").collect();
+        let fields: Vec<&str> = line.split(',').collect();
         let [_address, name, _parent, _vtable, crc, _size] = fields[..].try_into().unwrap();
 
         let crc = u32::from_str_radix(crc, 16).unwrap();

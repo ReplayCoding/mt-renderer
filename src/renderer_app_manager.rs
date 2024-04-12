@@ -1,4 +1,4 @@
-use log::{debug, trace};
+use log::trace;
 use std::sync::Arc;
 use winit::{
     event::{Event, WindowEvent},

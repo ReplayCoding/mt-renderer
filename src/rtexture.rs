@@ -3,6 +3,7 @@ use std::io::{Read, Seek};
 use bytemuck::{Pod, Zeroable};
 use log::debug;
 
+#[repr(u32)]
 #[derive(strum::FromRepr, Debug, Copy, Clone)]
 #[allow(non_camel_case_types, unused)]
 pub enum FormatType {
@@ -17,11 +18,11 @@ impl FormatType {
             Self::FORMAT_BC1_UNORM => wgpu::TextureFormat::Bc1RgbaUnorm,
             Self::FORMAT_R8G8B8A8_UNORM => wgpu::TextureFormat::Rgba8Unorm,
             Self::FORMAT_BC7_UNORM => wgpu::TextureFormat::Bc7RgbaUnorm,
-            _ => todo!("unhandled texture format {:?}", self),
         }
     }
 }
 
+#[repr(u32)]
 #[derive(strum::FromRepr, Debug, PartialEq, Eq)]
 #[allow(non_camel_case_types, unused)]
 enum TextureType {
@@ -79,13 +80,13 @@ impl TextureHeader {
     fn image_type(&self) -> TextureType {
         let v = (self.bitfield_4 >> 28) & 0xf;
 
-        TextureType::from_repr(v as usize).unwrap()
+        TextureType::from_repr(v).unwrap()
     }
     fn format_raw(&self) -> u32 {
         (self.bitfield_c >> 8) & 0xff
     }
     fn format(&self) -> FormatType {
-        FormatType::from_repr(self.format_raw() as usize).unwrap()
+        FormatType::from_repr(self.format_raw()).unwrap()
     }
     fn array_count(&self) -> u32 {
         self.bitfield_c & 0xff

@@ -104,7 +104,7 @@ impl RendererApp for TextureViewerApp {
         let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("main render pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &frame_view,
+                view: frame_view,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {

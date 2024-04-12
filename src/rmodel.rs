@@ -209,7 +209,7 @@ impl ModelFile {
             .map(|primitive_idx| {
                 let primitive_bytes =
                     &primitive_arr_bytes[primitive_idx * 0x38..(primitive_idx + 1) * 0x38];
-                let primitive: &PrimitiveInfo = bytemuck::try_from_bytes(&primitive_bytes).unwrap();
+                let primitive: &PrimitiveInfo = bytemuck::try_from_bytes(primitive_bytes).unwrap();
 
                 debug!(
                     "primitive {}: stride {} (mat {}: {}) layout {}",
@@ -219,7 +219,7 @@ impl ModelFile {
                     &material_names[primitive.material_no() as usize],
                     (primitive.inputlayout() & 0xfffff000) >> 0xc
                 );
-                primitive.clone()
+                *primitive
             })
             .collect();
 
@@ -229,7 +229,7 @@ impl ModelFile {
 
         let mut index_buf = vec![0u16; header.index_num as usize];
         reader.seek(std::io::SeekFrom::Start(header.index_data))?;
-        reader.read_exact(&mut bytemuck::cast_slice_mut(&mut index_buf))?;
+        reader.read_exact(bytemuck::cast_slice_mut(&mut index_buf))?;
 
         Ok(Self {
             material_names,

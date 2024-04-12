@@ -46,6 +46,7 @@ struct RawShader2InputElement {
     padding1: u32,
 }
 
+#[repr(u32)]
 #[derive(strum::FromRepr, Debug, PartialEq, Eq)]
 #[allow(non_camel_case_types, unused)]
 enum InputElementFormat {
@@ -135,7 +136,7 @@ impl Shader2File {
 
         let object_ptrs_bytes = &file_data[std::mem::size_of::<Shader2Header>()
             ..std::mem::size_of::<Shader2Header>() + ((header.num_objects as usize - 1) * 8)];
-        let object_ptrs: &[u64] = bytemuck::cast_slice(&object_ptrs_bytes);
+        let object_ptrs: &[u64] = bytemuck::cast_slice(object_ptrs_bytes);
         for object_ptr in object_ptrs {
             let object_bytes = &file_data[*object_ptr as usize..];
 
@@ -184,7 +185,7 @@ impl Shader2File {
                             name: element_name.to_string_lossy().to_string(),
                             sindex: raw_element.bitfield & 0x3f,
                             format: InputElementFormat::from_repr(
-                                ((raw_element.bitfield >> 6) & 0x1f) as usize,
+                                (raw_element.bitfield >> 6) & 0x1f,
                             )
                             .unwrap(),
                             count: (raw_element.bitfield >> 11) & 0x7f,
@@ -231,7 +232,7 @@ impl Shader2File {
         &self.objects
     }
 
-    pub fn get_object_by_handle<'a>(&'a self, handle: u32) -> Option<&'a Shader2Object> {
+    pub fn get_object_by_handle(&self, handle: u32) -> Option<&Shader2Object> {
         let hash = (handle & 0xfffff000) >> 0xc;
         let idx = self.hash_to_object.get(&hash)?;
 

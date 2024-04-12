@@ -37,7 +37,6 @@ struct RawTextureInfo {
 impl RawTextureInfo {
     fn path(&self) -> &str {
         CStr::from_bytes_until_nul(&self.path)
-            .ok()
             .expect("failed to decode texture info path into CStr")
             .to_str()
             .expect("failed to convert texture info path into str")
@@ -52,6 +51,7 @@ impl RawTextureInfo {
     }
 }
 
+#[repr(u32)]
 #[derive(strum::FromRepr, Debug)]
 enum MaterialStateType {
     STATE_FUNCTION = 0,
@@ -80,8 +80,7 @@ impl RawMaterialState {
         self.sh_crc
     }
     fn state_type(&self) -> MaterialStateType {
-        MaterialStateType::from_repr((self.bitfield_0x0 & 0xf) as usize)
-            .expect("invalid state type")
+        MaterialStateType::from_repr(self.bitfield_0x0 & 0xf).expect("invalid state type")
     }
     fn group(&self) -> u32 {
         (self.bitfield_0x0 >> 4) & 0xffff
@@ -114,13 +113,16 @@ struct RawMaterialInfo {
 }
 impl RawMaterialInfo {
     fn dti(&self) -> &'static str {
-        dti::from_hash(self.dti_hash).expect(
-            format!(
-                "invalid DTI hash in material info {:08x}",
-                self.dti_hash as u32
+        dti::from_hash(self.dti_hash).unwrap_or_else(|| {
+            panic!(
+                "{}",
+                format!("invalid DTI hash in material info {:08x}", {
+                    self.dti_hash
+                })
+                .leak()
+                .to_string()
             )
-            .leak(),
-        )
+        })
     }
     fn name_hash(&self) -> u32 {
         self.name_hash
@@ -156,7 +158,7 @@ impl MaterialInfo {
     }
 
     pub fn mat_type(&self) -> &'static str {
-        &self.mat_type
+        self.mat_type
     }
 
     pub fn albedo_texture_idx(&self) -> Option<usize> {

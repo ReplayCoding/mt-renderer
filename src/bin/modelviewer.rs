@@ -44,14 +44,13 @@ impl Model {
                 // TODO: This is awful
                 let path =
                     PathBuf::from("/home/user/Desktop/WIN11-vm-folder/scripts/out/chr218_eng")
-                        .join(PathBuf::from(&path.replace("\\", "/")))
+                        .join(PathBuf::from(&path.replace('\\', "/")))
                         .with_extension("rTexture");
                 info!("Loading texture {:?}", path);
                 let mut file = std::fs::File::open(&path).unwrap();
                 let texture = TextureFile::new(&mut file).unwrap();
-                let texture = Texture::new(device, queue, texture);
 
-                texture
+                Texture::new(device, queue, texture)
             })
             .collect();
 
@@ -71,13 +70,13 @@ impl Model {
 
         let vertexbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("rModel vertex buffer"),
-            contents: &model_file.vertex_buf(),
+            contents: model_file.vertex_buf(),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
         let indexbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("rModel index buffer"),
-            contents: bytemuck::cast_slice(&model_file.index_buf()),
+            contents: bytemuck::cast_slice(model_file.index_buf()),
             usage: wgpu::BufferUsages::INDEX,
         });
 
@@ -116,20 +115,20 @@ impl Model {
 
         let primitives: Vec<_> = model_file
             .primitives()
-            .to_vec()
-            .into_iter()
+            .iter()
             .filter(|prim| {
                 let mat_name = &model_file.material_names()[prim.material_no() as usize];
-                let mat_info = material_file.material_by_name(&mat_name).unwrap();
+                let mat_info = material_file.material_by_name(mat_name).unwrap();
 
                 mat_info.mat_type() == "nDraw::MaterialToon"
             })
+            .copied()
             .collect();
 
         for (_idx, primitive) in primitives.iter().enumerate() {
             let debug_id_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("rModel primitive id buffer"),
-                contents: bytemuck::cast_slice(&[primitive.material_no() as u32]),
+                contents: bytemuck::cast_slice(&[primitive.material_no()]),
                 usage: wgpu::BufferUsages::UNIFORM,
             });
 
@@ -167,10 +166,8 @@ impl Model {
 
                     let inputlayout_obj = shader2
                         .get_object_by_handle(primitive.inputlayout())
-                        .expect(&format!(
-                            "invalid inputlayout {:08x}",
-                            (primitive.inputlayout() as u64) // blah
-                        ));
+                        .unwrap_or_else(|| panic!("invalid inputlayout {:08x}",
+                            (primitive.inputlayout() as u64)));
 
                     let inputlayout_specific = if let Shader2ObjectTypedInfo::InputLayout(spec) =
                         inputlayout_obj.obj_specific()
@@ -182,7 +179,7 @@ impl Model {
 
                     let material_name = &model_file.material_names()[primitive.material_no() as usize];
                     let attributes =
-                        Shader2File::create_vertex_buffer_elements(&inputlayout_specific);
+                        Shader2File::create_vertex_buffer_elements(inputlayout_specific);
                     info!(
                         "Creating layout for {}: {:#?} (textured {}) (mat {}) (topo {:?})",
                         inputlayout_obj.name(),
@@ -292,7 +289,7 @@ impl Model {
             occlusion_query_set: None,
         });
 
-        rpass.set_bind_group(0, &transform_bind_group, &[]);
+        rpass.set_bind_group(0, transform_bind_group, &[]);
         rpass.set_index_buffer(self.indexbuf.slice(..), wgpu::IndexFormat::Uint16);
         for (id, primitive) in self.primitives.iter().enumerate() {
             rpass.set_bind_group(1, &self.debug_ids[id], &[]);
@@ -456,7 +453,7 @@ impl RendererApp for ModelViewerApp {
 
         self.model.render(
             frame_view,
-            &self.depth_texture_view.as_ref().unwrap(),
+            self.depth_texture_view.as_ref().unwrap(),
             &self.transform_bind_group,
             encoder,
         );

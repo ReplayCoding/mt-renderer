@@ -10,7 +10,7 @@ pub struct Texture {
 impl Texture {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, resource: TextureFile) -> Self {
         let texture = device.create_texture_with_data(
-            &queue,
+            queue,
             &wgpu::TextureDescriptor {
                 label: Some("texture"),
                 size: wgpu::Extent3d {
