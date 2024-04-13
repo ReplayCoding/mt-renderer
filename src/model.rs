@@ -17,8 +17,8 @@ pub struct Model {
 
     debug_ids: Vec<wgpu::BindGroup>,
 
-    // (vertex_stride, material_no)
-    pipelines: HashMap<(u32, u32), wgpu::RenderPipeline>,
+    // (vertex_stride, material_no, inputlayout)
+    pipelines: HashMap<(u32, u32, u32), wgpu::RenderPipeline>,
 
     primitives: Vec<crate::rmodel::PrimitiveInfo>,
     textures: Vec<Texture>,
@@ -40,10 +40,9 @@ impl Model {
             .iter()
             .map(|path| {
                 // TODO: This is awful
-                let path =
-                    PathBuf::from("/home/user/Desktop/WIN11-vm-folder/scripts/out/chr218_eng")
-                        .join(PathBuf::from(&path.replace('\\', "/")))
-                        .with_extension("rTexture");
+                let path = PathBuf::from("/home/user/Desktop/WIN11-vm-folder/scripts/out/chr055")
+                    .join(PathBuf::from(&path.replace('\\', "/")))
+                    .with_extension("rTexture");
                 info!("Loading texture {:?}", path);
                 let mut file = std::fs::File::open(&path).unwrap();
                 let texture = TextureFile::new(&mut file).unwrap();
@@ -125,13 +124,13 @@ impl Model {
 
         for (_idx, primitive) in primitives.iter().enumerate() {
             let debug_id_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("rModel primitive id buffer"),
-                contents: bytemuck::cast_slice(&[primitive.material_no()]),
+                label: Some("rModel debug id buffer"),
+                contents: bytemuck::cast_slice(&[(primitive.inputlayout() & 0xfffff000) >> 0xc]),
                 usage: wgpu::BufferUsages::UNIFORM,
             });
 
             let debug_id_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("rModel primitive debug id group"),
+                label: Some("rModel debug id group"),
                 layout: &debug_id_bind_group_layout,
                 entries: &[wgpu::BindGroupEntry {
                     binding: 0,
@@ -143,7 +142,7 @@ impl Model {
 
             // Create pipeline if needed
             pipelines
-                .entry((primitive.vertex_stride(), primitive.material_no()))
+                .entry((primitive.vertex_stride(), primitive.material_no(), primitive.inputlayout()))
                 .or_insert_with(|| {
                     let mut textured = false;
                     let mut bind_group_layouts =
@@ -179,7 +178,8 @@ impl Model {
                     let attributes =
                         Shader2File::create_vertex_buffer_elements(inputlayout_specific);
                     info!(
-                        "Creating layout for {}: {:#?} (textured {}) (mat {}) (topo {:?})",
+                        "Creating layout for {} {}: {:#?} (textured {}) (mat {}) (topo {:?})",
+                        (primitive.inputlayout() & 0xfffff000) >> 0xc,
                         inputlayout_obj.name(),
                         attributes,
                         textured,
@@ -302,7 +302,11 @@ impl Model {
 
             let pipeline = self
                 .pipelines
-                .get(&(primitive.vertex_stride(), primitive.material_no()))
+                .get(&(
+                    primitive.vertex_stride(),
+                    primitive.material_no(),
+                    primitive.inputlayout(),
+                ))
                 .unwrap();
             rpass.set_pipeline(pipeline);
 

@@ -38,7 +38,7 @@ struct MtSphere {
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable, Debug)]
-struct MODEL_INFO {
+struct ModelInfo {
     middist: i32,
     lowdist: i32,
     light_group: u32,
@@ -70,7 +70,7 @@ struct ModelHdr {
     rcn_data: u64,
     bounding_sphere: MtSphere,
     bounding_box: MtAABB,
-    modelinfo: MODEL_INFO,
+    modelinfo: ModelInfo,
 }
 
 #[repr(u32)]
@@ -212,7 +212,7 @@ impl ModelFile {
                 let primitive: &PrimitiveInfo = bytemuck::try_from_bytes(primitive_bytes).unwrap();
 
                 debug!(
-                    "primitive {}: stride {} (mat {}: {}) layout {}",
+                    "primitive {}: stride {} (mat {}: {}) layout {:08x}",
                     primitive_idx,
                     primitive.vertex_stride(),
                     primitive.material_no() as usize,
