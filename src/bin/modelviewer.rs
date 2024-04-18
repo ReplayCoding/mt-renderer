@@ -1,10 +1,8 @@
+use std::path::PathBuf;
+
 use glam::Mat4;
 use mt_renderer::{
-    model::Model,
-    renderer_app_manager::{RendererApp, RendererAppManager, RendererAppManagerInternal},
-    rmaterial::MaterialFile,
-    rmodel::ModelFile,
-    rshader2::Shader2File,
+    model::Model, renderer_app_manager::{RendererApp, RendererAppManager, RendererAppManagerInternal}, resource_manager::ResourceManager, rmaterial::MaterialFile, rmodel::ModelFile, rshader2::Shader2File, DTIs
 };
 
 struct ModelViewerApp {
@@ -57,9 +55,11 @@ impl RendererApp for ModelViewerApp {
     ) -> anyhow::Result<Self> {
         let args: Vec<_> = std::env::args().collect();
 
-        let mut model_file = std::fs::File::open(&args[1])?;
-        let mut material_file = std::fs::File::open(&args[2])?;
-        let mut shader_file = std::fs::File::open("/home/user/Desktop/WIN11-vm-folder/TGAAC-for-research/nativeDX11x64/custom_shaders/CustomShaderPackage.mfx")?;
+        let mut resource_manager = ResourceManager::new(&PathBuf::from(&args[1]));
+
+        let mut model_file = resource_manager.get_resource_fancy(&args[2], &DTIs::rModel)?;
+        let mut material_file = resource_manager.get_resource_fancy(&args[2], &DTIs::rMaterial)?;
+        let mut shader_file = resource_manager.get_resource_fancy("custom_shaders/CustomShaderPackage", &DTIs::rShader2)?;
         let shader2 = Shader2File::new(&mut shader_file)?;
         let material = MaterialFile::new(&mut material_file, &shader2)?;
 
@@ -100,6 +100,7 @@ impl RendererApp for ModelViewerApp {
             &model_file,
             &material,
             &shader2,
+            &resource_manager,
             device,
             queue,
             &transform_bind_group_layout,
@@ -153,8 +154,8 @@ fn compute_mat(aspect: f32) -> Mat4 {
     let model = glam::Mat4::IDENTITY; // glam::Mat4::from_scale(glam::vec3(10.,10.,10.));
 
     let view = {
-        let camera_pos = glam::vec3(0., 0.5, 1.);
-        let camera_target = glam::vec3(0.0, 0.0, 0.0);
+        let camera_pos = glam::vec3(0.25, 0.25, 1.);
+        let camera_target = glam::vec3(camera_pos.x, camera_pos.y, 0.0);
         let camera_direction = (camera_pos - camera_target).normalize();
 
         let up = glam::vec3(0., 1., 0.);

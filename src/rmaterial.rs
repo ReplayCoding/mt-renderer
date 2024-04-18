@@ -5,7 +5,7 @@ use std::{
 
 use log::{debug, warn};
 
-use crate::{dti, rshader2::Shader2File};
+use crate::{rshader2::Shader2File, DTI};
 
 #[repr(C, packed)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -42,9 +42,9 @@ impl RawTextureInfo {
             .expect("failed to convert texture info path into str")
     }
 
-    fn dti(&self) -> Option<&'static str> {
+    fn dti(&self) -> Option<&DTI> {
         if self.dti_hash != 0 {
-            Some(dti::from_hash(self.dti_hash).expect("invalid DTI hash in texture info"))
+            Some(DTI::from_hash(self.dti_hash).expect("invalid DTI hash in texture info"))
         } else {
             None
         }
@@ -112,8 +112,8 @@ struct RawMaterialInfo {
     animation_list: u64, // ANIMATION_LIST*
 }
 impl RawMaterialInfo {
-    fn dti(&self) -> &'static str {
-        dti::from_hash(self.dti_hash).unwrap_or_else(|| {
+    fn dti(&self) -> &'static DTI {
+        DTI::from_hash(self.dti_hash).unwrap_or_else(|| {
             panic!(
                 "{}",
                 format!("invalid DTI hash in material info {:08x}", {
@@ -148,7 +148,7 @@ impl RawMaterialInfo {
 #[derive(Debug)]
 pub struct MaterialInfo {
     name_hash: u32,
-    mat_type: &'static str,
+    mat_type: &'static DTI,
     albedo_texture_idx: Option<usize>, // HACK
 }
 
@@ -157,7 +157,7 @@ impl MaterialInfo {
         self.name_hash
     }
 
-    pub fn mat_type(&self) -> &'static str {
+    pub fn mat_type(&self) -> &DTI {
         self.mat_type
     }
 
@@ -189,10 +189,12 @@ impl MaterialFile {
 
                 let texture_path = texture_info.path();
                 let texture_dti = texture_info.dti();
-                assert_eq!(texture_dti, Some("rTexture")); // HACK
+                assert_eq!(texture_dti.map(|d| d.name()), Some("rTexture")); // HACK
                 debug!(
                     "texture {}: dti {:?} path \"{}\"",
-                    i, texture_dti, texture_path
+                    i,
+                    texture_dti.map(|d| d.name()),
+                    texture_path
                 );
 
                 texture_path.to_string()

@@ -4,11 +4,13 @@ use log::info;
 use wgpu::util::DeviceExt;
 
 use crate::{
+    resource_manager::ResourceManager,
     rmaterial::MaterialFile,
     rmodel::ModelFile,
     rshader2::{Shader2File, Shader2ObjectTypedInfo},
     rtexture::TextureFile,
     texture::Texture,
+    DTIs,
 };
 
 pub struct Model {
@@ -30,6 +32,7 @@ impl Model {
         model_file: &ModelFile,
         material_file: &MaterialFile,
         shader2: &Shader2File,
+        resource_manager: &ResourceManager,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         transform_bind_group_layout: &wgpu::BindGroupLayout,
@@ -39,12 +42,10 @@ impl Model {
             .textures()
             .iter()
             .map(|path| {
-                // TODO: This is awful
-                let path = PathBuf::from("/home/user/Desktop/WIN11-vm-folder/scripts/out/chr055")
-                    .join(PathBuf::from(&path.replace('\\', "/")))
-                    .with_extension("rTexture");
                 info!("Loading texture {:?}", path);
-                let mut file = std::fs::File::open(&path).unwrap();
+                let mut file = resource_manager
+                    .get_resource(&PathBuf::from(&path.replace("\\", "/")), &DTIs::rTexture)
+                    .expect("texture load failed");
                 let texture = TextureFile::new(&mut file).unwrap();
 
                 Texture::new(device, queue, texture)
@@ -57,7 +58,7 @@ impl Model {
             .map(|name| {
                 let info = material_file.material_by_name(name)?;
 
-                if info.mat_type() == "nDraw::MaterialToon" {
+                if info.mat_type().name() == "nDraw::MaterialToon" {
                     info.albedo_texture_idx()
                 } else {
                     None
@@ -117,7 +118,7 @@ impl Model {
                 let mat_name = &model_file.material_names()[prim.material_no() as usize];
                 let mat_info = material_file.material_by_name(mat_name).unwrap();
 
-                mat_info.mat_type() == "nDraw::MaterialToon"
+                mat_info.mat_type().name() == "nDraw::MaterialToon"
             })
             .copied()
             .collect();
@@ -224,7 +225,10 @@ impl Model {
                                 targets: &[Some(wgpu::ColorTargetState {
                                     format: swapchain_format,
                                     write_mask: wgpu::ColorWrites::ALL,
-                                    blend: None,
+                                    blend: Some(wgpu::BlendState {
+                                        color: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::SrcAlpha, dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha, operation: wgpu::BlendOperation::Add },
+                                        alpha: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::Zero, operation: wgpu::BlendOperation::Add },
+                                    }),
                                 })],
                             }),
                             primitive: wgpu::PrimitiveState {
@@ -235,7 +239,7 @@ impl Model {
                             depth_stencil: Some(wgpu::DepthStencilState {
                                 format: wgpu::TextureFormat::Depth24Plus,
                                 depth_write_enabled: true,
-                                depth_compare: wgpu::CompareFunction::Less,
+                                depth_compare: wgpu::CompareFunction::LessEqual,
                                 stencil: wgpu::StencilState::default(),
                                 bias: wgpu::DepthBiasState::default(),
                             }),
