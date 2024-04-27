@@ -1,8 +1,14 @@
-use std::path::PathBuf;
+use std::{mem::size_of, path::PathBuf};
 
 use glam::Mat4;
 use mt_renderer::{
-    model::Model, renderer_app_manager::{RendererApp, RendererAppManager, RendererAppManagerInternal}, resource_manager::ResourceManager, rmaterial::MaterialFile, rmodel::ModelFile, rshader2::Shader2File, DTIs
+    model::Model,
+    renderer_app_manager::{RendererApp, RendererAppManager, RendererAppManagerInternal},
+    resource_manager::ResourceManager,
+    rmaterial::MaterialFile,
+    rmodel::ModelFile,
+    rshader2::Shader2File,
+    DTIs,
 };
 
 struct ModelViewerApp {
@@ -59,14 +65,15 @@ impl RendererApp for ModelViewerApp {
 
         let mut model_file = resource_manager.get_resource_fancy(&args[2], &DTIs::rModel)?;
         let mut material_file = resource_manager.get_resource_fancy(&args[2], &DTIs::rMaterial)?;
-        let mut shader_file = resource_manager.get_resource_fancy("custom_shaders/CustomShaderPackage", &DTIs::rShader2)?;
+        let mut shader_file = resource_manager
+            .get_resource_fancy("custom_shaders/CustomShaderPackage", &DTIs::rShader2)?;
         let shader2 = Shader2File::new(&mut shader_file)?;
         let material = MaterialFile::new(&mut material_file, &shader2)?;
 
         let transform_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("transform buffer"),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            size: std::mem::size_of::<Mat4>() as u64,
+            size: size_of::<Mat4>() as u64,
             mapped_at_creation: false,
         });
 
@@ -154,7 +161,7 @@ fn compute_mat(aspect: f32) -> Mat4 {
     let model = glam::Mat4::IDENTITY; // glam::Mat4::from_scale(glam::vec3(10.,10.,10.));
 
     let view = {
-        let camera_pos = glam::vec3(0.25, 0.25, 1.);
+        let camera_pos = glam::vec3(0.25, 0.25, 0.7);
         let camera_target = glam::vec3(camera_pos.x, camera_pos.y, 0.0);
         let camera_direction = (camera_pos - camera_target).normalize();
 

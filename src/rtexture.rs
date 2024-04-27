@@ -1,4 +1,7 @@
-use std::io::{Read, Seek};
+use std::{
+    io::{Read, Seek},
+    mem::size_of,
+};
 
 use bytemuck::{Pod, Zeroable};
 use log::debug;
@@ -106,7 +109,7 @@ pub struct TextureFile {
 
 impl TextureFile {
     pub fn new<R: Read + Seek>(reader: &mut R) -> anyhow::Result<Self> {
-        let mut header_bytes = [0u8; std::mem::size_of::<TextureHeader>()];
+        let mut header_bytes = [0u8; size_of::<TextureHeader>()];
         reader.read_exact(&mut header_bytes)?;
         let header: &TextureHeader = bytemuck::from_bytes(&header_bytes);
 
@@ -171,5 +174,5 @@ impl TextureFile {
 
 #[test]
 fn test_struct_sizes() {
-    assert_eq!(0x10, std::mem::size_of::<TextureHeader>());
+    assert_eq!(0x10, size_of::<TextureHeader>());
 }

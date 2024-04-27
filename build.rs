@@ -25,6 +25,7 @@ where
 }
 
 #[derive(Deserialize)]
+#[allow(unused)]
 struct DTIEntry {
     #[serde(deserialize_with = "u64_from_hex_string")]
     addr: Option<u64>,
@@ -90,7 +91,6 @@ fn build_dti_map() {
     .unwrap();
 
     writeln!(&mut out_file, "}}").unwrap();
-
 }
 
 fn main() {

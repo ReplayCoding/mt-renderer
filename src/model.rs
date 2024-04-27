@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::PathBuf};
 
-use log::info;
+use log::{info, trace};
 use wgpu::util::DeviceExt;
 
 use crate::{
@@ -23,7 +23,7 @@ pub struct Model {
     pipelines: HashMap<(u32, u32, u32), wgpu::RenderPipeline>,
 
     primitives: Vec<crate::rmodel::PrimitiveInfo>,
-    textures: Vec<Texture>,
+    textures: Vec<Option<Texture>>,
     mat_to_tex: Vec<Option<usize>>,
 }
 
@@ -45,10 +45,10 @@ impl Model {
                 info!("Loading texture {:?}", path);
                 let mut file = resource_manager
                     .get_resource(&PathBuf::from(&path.replace("\\", "/")), &DTIs::rTexture)
-                    .expect("texture load failed");
-                let texture = TextureFile::new(&mut file).unwrap();
+                    .ok()?;
+                let texture = TextureFile::new(&mut file).ok()?;
 
-                Texture::new(device, queue, texture)
+                Some(Texture::new(device, queue, texture))
             })
             .collect();
 
@@ -58,6 +58,8 @@ impl Model {
             .map(|name| {
                 let info = material_file.material_by_name(name)?;
 
+                // HACK: This is awful and stupid. But i need a proper way of
+                // handling materials before i can do anything about it
                 if info.mat_type().name() == "nDraw::MaterialToon" {
                     info.albedo_texture_idx()
                 } else {
@@ -115,10 +117,14 @@ impl Model {
             .primitives()
             .iter()
             .filter(|prim| {
-                let mat_name = &model_file.material_names()[prim.material_no() as usize];
-                let mat_info = material_file.material_by_name(mat_name).unwrap();
-
-                mat_info.mat_type().name() == "nDraw::MaterialToon"
+                if true {
+                    // HACK
+                    let mat_name = &model_file.material_names()[prim.material_no() as usize];
+                    let mat_info = material_file.material_by_name(mat_name).unwrap();
+                    mat_info.mat_type().name() == "nDraw::MaterialToon"
+                } else {
+                    true
+                }
             })
             .copied()
             .collect();
@@ -150,7 +156,7 @@ impl Model {
                         vec![transform_bind_group_layout, &debug_id_bind_group_layout];
 
                     if let Some(tex_idx) = mat_to_tex[primitive.material_no() as usize] {
-                        let layout = textures[tex_idx].bind_group_layout();
+                        let layout = textures[tex_idx].as_ref().expect("no texture found!").bind_group_layout();
                         textured = true;
                         bind_group_layouts.push(layout);
                     };
@@ -293,16 +299,47 @@ impl Model {
 
         rpass.set_bind_group(0, transform_bind_group, &[]);
         rpass.set_index_buffer(self.indexbuf.slice(..), wgpu::IndexFormat::Uint16);
+
+        let parts_disp = [
+            true, true, true, true, true, false, false, true, true, false, true, true, false, true,
+            true, true, true, true, true, false, true, true, true, true, true, true, true, true,
+            true, true, true, false, false, false, false, false, false, false, false, false, true,
+            false, false, false, false, false, false, false, false, false, true, false, false,
+            false, false, false, false, false, false, false, true, false, false, false, false,
+            false, false, false, false, false, false, false, false, false, false, false, false,
+            false, false, false, true, true, true, true, true, true, true, true, true, true, true,
+            true, true, true, true, true, true, true, true, true, true, true, true, true, true,
+            true, true, true, true, true, true, true, true, true, true, true, true, true, true,
+            true, true, true, true, true, true, true, true, true,
+        ];
+
         for (id, primitive) in self.primitives.iter().enumerate() {
+            // HACK: testing partdisp, need to load this from rCharacter...
+            if !parts_disp[primitive.parts_no() as usize] {
+                continue;
+            }
+
             rpass.set_bind_group(1, &self.debug_ids[id], &[]);
 
             if let Some(tex_idx) = self.mat_to_tex[primitive.material_no() as usize] {
-                rpass.set_bind_group(2, self.textures[tex_idx].bind_group(), &[]);
+                rpass.set_bind_group(
+                    2,
+                    self.textures[tex_idx]
+                        .as_ref()
+                        .expect("no texture found")
+                        .bind_group(),
+                    &[],
+                );
             };
 
-            // TODO: Should we try to make this as small as possible?
+            // TODO: Are these bounds correct?
             // XXX: What does vertex_ofs do
-            rpass.set_vertex_buffer(0, self.vertexbuf.slice(primitive.vertex_base() as u64..));
+            let vertex_range = primitive.vertex_base() as u64
+                ..(primitive.vertex_base() + (primitive.vertex_num() * primitive.vertex_stride()))
+                    as u64;
+
+            trace!("drawing vertex range: {:?}", vertex_range);
+            rpass.set_vertex_buffer(0, self.vertexbuf.slice(vertex_range));
 
             let pipeline = self
                 .pipelines

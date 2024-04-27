@@ -3,7 +3,7 @@ use mt_renderer::{
     rtexture::TextureFile,
     texture::Texture,
 };
-use std::borrow::Cow;
+use std::{borrow::Cow, mem::size_of};
 use wgpu::util::DeviceExt;
 
 struct TextureViewerApp {
@@ -60,7 +60,7 @@ impl RendererApp for TextureViewerApp {
                 module: &shader,
                 entry_point: "vs_main",
                 buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: (std::mem::size_of::<f32>() * 2) as u64,
+                    array_stride: (size_of::<f32>() * 2) as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &[wgpu::VertexAttribute {
                         format: wgpu::VertexFormat::Float32x2,

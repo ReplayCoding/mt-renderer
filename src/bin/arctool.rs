@@ -13,7 +13,11 @@ fn main() -> anyhow::Result<()> {
     let out_dir_name = PathBuf::from(archive_path.file_stem().unwrap());
 
     for resource in archive.resource_infos() {
-        println!("{:#?}", resource);
+        println!(
+            "Extracting {:?} ({})",
+            resource.path(),
+            resource.dti().name()
+        );
 
         let data = archive.get_resource_by_info(resource).unwrap();
         let out_path = out_dir_name.join(

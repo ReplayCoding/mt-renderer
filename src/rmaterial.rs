@@ -1,6 +1,7 @@
 use std::{
     ffi::CStr,
     io::{Read, Seek},
+    mem::size_of,
 };
 
 use log::{debug, warn};
@@ -53,6 +54,7 @@ impl RawTextureInfo {
 
 #[repr(u32)]
 #[derive(strum::FromRepr, Debug)]
+#[allow(non_camel_case_types)]
 enum MaterialStateType {
     STATE_FUNCTION = 0,
     STATE_CBUFFER = 1,
@@ -174,7 +176,7 @@ pub struct MaterialFile {
 
 impl MaterialFile {
     pub fn new<R: Read + Seek>(reader: &mut R, shader2: &Shader2File) -> anyhow::Result<Self> {
-        let mut header_bytes = [0u8; std::mem::size_of::<MaterialHeader>()];
+        let mut header_bytes = [0u8; size_of::<MaterialHeader>()];
         reader.read_exact(&mut header_bytes)?;
         let header: &MaterialHeader = bytemuck::from_bytes(&header_bytes);
 
@@ -183,7 +185,7 @@ impl MaterialFile {
         reader.seek(std::io::SeekFrom::Start(header.textures))?;
         let textures: Vec<_> = (0..header.texture_num)
             .map(|i| {
-                let mut texture_info_bytes = [0u8; std::mem::size_of::<RawTextureInfo>()];
+                let mut texture_info_bytes = [0u8; size_of::<RawTextureInfo>()];
                 reader.read_exact(&mut texture_info_bytes).unwrap();
                 let texture_info: &RawTextureInfo = bytemuck::from_bytes(&texture_info_bytes);
 
@@ -204,10 +206,10 @@ impl MaterialFile {
         let materials: Vec<_> = (0..header.material_num).map(|material_idx | {
             reader.seek(std::io::SeekFrom::Start(
                 header.materials
-                    + (material_idx as u64 * std::mem::size_of::<RawMaterialInfo>() as u64),
+                    + (material_idx as u64 * size_of::<RawMaterialInfo>() as u64),
             )).unwrap();
 
-            let mut material_info_bytes = [0u8; std::mem::size_of::<RawMaterialInfo>()];
+            let mut material_info_bytes = [0u8; size_of::<RawMaterialInfo>()];
             reader.read_exact(&mut material_info_bytes).unwrap();
             let material_info: &RawMaterialInfo = bytemuck::from_bytes(&material_info_bytes[..]);
 
@@ -237,10 +239,10 @@ impl MaterialFile {
             for state_idx in 0..material_info.state_num() {
                 reader.seek(std::io::SeekFrom::Start(
                     material_info.states
-                        + (state_idx as u64 * std::mem::size_of::<RawMaterialState>() as u64),
+                        + (state_idx as u64 * size_of::<RawMaterialState>() as u64),
                 )).unwrap();
 
-                let mut state_bytes = [0u8; std::mem::size_of::<RawMaterialState>()];
+                let mut state_bytes = [0u8; size_of::<RawMaterialState>()];
                 reader.read_exact(&mut state_bytes).unwrap();
                 let state: &RawMaterialState = bytemuck::from_bytes(&state_bytes);
 
@@ -319,8 +321,8 @@ impl MaterialFile {
 
 #[test]
 fn test_struct_sizes() {
-    assert_eq!(std::mem::size_of::<MaterialHeader>(), 0x28);
-    assert_eq!(std::mem::size_of::<RawTextureInfo>(), 0x98);
-    assert_eq!(std::mem::size_of::<RawMaterialInfo>(), 0x48);
-    assert_eq!(std::mem::size_of::<RawMaterialState>(), 0x18);
+    assert_eq!(size_of::<MaterialHeader>(), 0x28);
+    assert_eq!(size_of::<RawTextureInfo>(), 0x98);
+    assert_eq!(size_of::<RawMaterialInfo>(), 0x48);
+    assert_eq!(size_of::<RawMaterialState>(), 0x18);
 }

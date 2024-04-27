@@ -1,11 +1,12 @@
 use bytemuck::{Pod, Zeroable};
-use log::debug;
+use log::{debug, trace};
 use std::{
     ffi::CStr,
     io::{Read, Seek},
+    mem::size_of,
 };
 
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Clone, Copy, Pod, Zeroable, Debug)]
 struct MtVector3 {
     x: f32,
@@ -14,14 +15,23 @@ struct MtVector3 {
     pad_: f32,
 }
 
-#[repr(C)]
+#[repr(C, packed)]
+#[derive(Clone, Copy, Pod, Zeroable, Debug)]
+struct MtVector4 {
+    x: f32,
+    y: f32,
+    z: f32,
+    w: f32,
+}
+
+#[repr(C, packed)]
 #[derive(Clone, Copy, Pod, Zeroable, Debug)]
 struct MtAABB {
     minpos: MtVector3,
     maxpos: MtVector3,
 }
 
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Clone, Copy, Pod, Zeroable, Debug)]
 struct MtFloat3A {
     x: f32,
@@ -29,14 +39,27 @@ struct MtFloat3A {
     z: f32,
 }
 
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Clone, Copy, Pod, Zeroable, Debug)]
 struct MtSphere {
     pos: MtFloat3A,
     r: f32,
 }
 
-#[repr(C)]
+#[repr(C, packed)]
+#[derive(Clone, Copy, Pod, Zeroable, Debug)]
+struct MtMatrix {
+    m: [MtVector4; 4],
+}
+
+#[repr(C, packed)]
+#[derive(Clone, Copy, Pod, Zeroable, Debug)]
+struct MtOBB {
+    coord: MtMatrix,
+    extent: MtVector3,
+}
+
+#[repr(C, packed)]
 #[derive(Clone, Copy, Pod, Zeroable, Debug)]
 struct ModelInfo {
     middist: i32,
@@ -46,7 +69,7 @@ struct ModelInfo {
     reserved: u16,
 }
 
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Clone, Copy, Pod, Zeroable, Debug)]
 struct ModelHdr {
     magic: u32,
@@ -124,7 +147,7 @@ pub struct PrimitiveInfo {
     min_max_index: u32,
 
     padding_: u32, // pointers are aligned to 8 bytes
-    boundary: u64, // struct BOUNDARY_INFO *
+    boundary: u64, // struct BOUNDARY_INFO *, junk data?
 }
 
 impl PrimitiveInfo {
@@ -138,6 +161,10 @@ impl PrimitiveInfo {
 
     pub fn material_no(&self) -> u32 {
         (self.parts_material_lod >> 12) & 0xFFF
+    }
+
+    pub fn weight_num(&self) -> u32 {
+        (self.very_large_bitfield >> 3) & 0x1f
     }
 
     pub fn inputlayout(&self) -> u32 {
@@ -167,13 +194,42 @@ impl PrimitiveInfo {
     pub fn topology(&self) -> PrimitiveTopology {
         PrimitiveTopology::from_repr(self.raw_topology()).unwrap()
     }
+
+    pub fn vertex_num(&self) -> u32 {
+        (self.drawmode_vertexnum >> 16) & 0xffff
+    }
+
+    pub fn boundary_num(&self) -> u32 {
+        (self.envelope_boundary_connect >> 8) & 0xff
+    }
+}
+
+#[repr(C, packed)]
+#[derive(Clone, Copy, Pod, Zeroable, Debug)]
+pub struct PartsInfo {
+    no: u32,
+    reserved: [u32; 3],
+    boundary: MtSphere,
+}
+
+#[repr(C, packed)]
+#[derive(Clone, Copy, Pod, Zeroable, Debug)]
+struct BoundaryInfo {
+    joint: u32,
+    reserved: [u32; 3],
+    sphere: MtSphere,
+    aabb: MtAABB,
+    obb: MtOBB,
 }
 
 pub struct ModelFile {
     material_names: Vec<String>,
     primitives: Vec<PrimitiveInfo>,
+    parts: Vec<PartsInfo>,
+
     vertex_buf: Vec<u8>,
     index_buf: Vec<u16>,
+    boundary_infos: Vec<BoundaryInfo>,
 }
 
 impl ModelFile {
@@ -183,7 +239,13 @@ impl ModelFile {
 
         let header: &ModelHdr = bytemuck::try_from_bytes(&header_bytes).unwrap();
 
+        let mut boundary_num_bytes: [u8; 4] = [0; 4];
+        reader.read_exact(&mut boundary_num_bytes)?;
+
+        let boundary_num = u32::from_le_bytes(boundary_num_bytes);
+
         debug!("model header: {:#?}", header);
+        debug!("boundary_num: {}", boundary_num);
 
         let mut material_bytes = vec![0u8; header.material_num as usize * 128];
         reader.seek(std::io::SeekFrom::Start(header.material_info as u64))?;
@@ -212,14 +274,46 @@ impl ModelFile {
                 let primitive: &PrimitiveInfo = bytemuck::try_from_bytes(primitive_bytes).unwrap();
 
                 debug!(
-                    "primitive {}: stride {} (mat {}: {}) layout {:08x}",
+                    "primitive {}: stride {} (mat {}: {}) layout {:08x} part {} material {} weight_num {} boundary {}",
                     primitive_idx,
                     primitive.vertex_stride(),
                     primitive.material_no() as usize,
                     &material_names[primitive.material_no() as usize],
-                    (primitive.inputlayout() & 0xfffff000) >> 0xc
+                    (primitive.inputlayout() & 0xfffff000) >> 0xc,
+                    primitive.parts_no(),
+                    primitive.material_no(),
+                    primitive.weight_num(),
+                    primitive.boundary_num(),
                 );
+
                 *primitive
+            })
+            .collect();
+
+        let mut boundary_info_bytes = vec![0u8; boundary_num as usize * 0x90];
+        reader.read_exact(&mut boundary_info_bytes)?; // no seek, wtf
+        let boundary_infos: Vec<BoundaryInfo> = (0..boundary_num as usize)
+            .map(|boundary_idx| {
+                let info_bytes =
+                    &boundary_info_bytes[boundary_idx * 0x90..(boundary_idx + 1) * 0x90];
+                let info: &BoundaryInfo = bytemuck::try_from_bytes(info_bytes).unwrap();
+
+                trace!("boundary {}: {:?}", boundary_idx, info);
+                *info
+            })
+            .collect();
+
+        let mut parts_arr_bytes = vec![0u8; header.parts_num as usize * size_of::<PartsInfo>()];
+        reader.seek(std::io::SeekFrom::Start(header.parts_info as u64))?;
+        reader.read_exact(&mut parts_arr_bytes)?;
+        let parts: Vec<PartsInfo> = (0..header.parts_num as usize)
+            .map(|idx| {
+                let bytes = &parts_arr_bytes
+                    [idx * size_of::<PartsInfo>()..(idx + 1) * size_of::<PartsInfo>()];
+                let part: &PartsInfo = bytemuck::try_from_bytes(bytes).unwrap();
+                debug!("part: {:?}", part);
+
+                *part
             })
             .collect();
 
@@ -234,6 +328,8 @@ impl ModelFile {
         Ok(Self {
             material_names,
             primitives,
+            parts,
+            boundary_infos,
             vertex_buf,
             index_buf,
         })
@@ -251,6 +347,10 @@ impl ModelFile {
         &self.primitives
     }
 
+    pub fn parts(&self) -> &[PartsInfo] {
+        &self.parts
+    }
+
     pub fn material_names(&self) -> &[String] {
         &self.material_names
     }
@@ -258,6 +358,8 @@ impl ModelFile {
 
 #[test]
 fn test_struct_sizes() {
-    assert_eq!(std::mem::size_of::<ModelHdr>(), 0xa0);
-    assert_eq!(std::mem::size_of::<PrimitiveInfo>(), 0x38);
+    assert_eq!(size_of::<ModelHdr>(), 0xa0);
+    assert_eq!(size_of::<PrimitiveInfo>(), 0x38);
+    assert_eq!(size_of::<PartsInfo>(), 0x20);
+    assert_eq!(size_of::<BoundaryInfo>(), 0x90);
 }

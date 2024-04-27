@@ -1,6 +1,7 @@
 use std::{
     ffi::{CStr, OsString},
     io::{Cursor, Read, Seek},
+    mem::size_of,
     path::{Path, PathBuf},
     sync::Mutex,
 };
@@ -38,7 +39,7 @@ pub struct ResourceInfo {
     offset: u32,
 
     // TODO: what exactly does this do?
-    quality: u8,
+    _quality: u8,
 }
 impl ResourceInfo {
     pub fn path(&self) -> &Path {
@@ -57,7 +58,7 @@ pub struct ArchiveFile<Backing: Read + Seek> {
 
 impl<Backing: Read + Seek> ArchiveFile<Backing> {
     pub fn new(mut reader: Backing) -> anyhow::Result<Self> {
-        let mut header_bytes = [0u8; std::mem::size_of::<ArchiveHeader>()];
+        let mut header_bytes = [0u8; size_of::<ArchiveHeader>()];
         reader.read_exact(&mut header_bytes)?;
         let header: &ArchiveHeader = bytemuck::from_bytes(&header_bytes);
 
@@ -68,7 +69,7 @@ impl<Backing: Read + Seek> ArchiveFile<Backing> {
         let mut resources: Vec<ResourceInfo> = vec![];
 
         for _ in 0..header.num_resources {
-            let mut raw_resource_info_bytes = [0u8; std::mem::size_of::<RawResourceInfo>()];
+            let mut raw_resource_info_bytes = [0u8; size_of::<RawResourceInfo>()];
             reader.read_exact(&mut raw_resource_info_bytes)?;
             let raw_resource_info: &RawResourceInfo =
                 bytemuck::from_bytes(&raw_resource_info_bytes);
@@ -105,7 +106,7 @@ impl<Backing: Read + Seek> ArchiveFile<Backing> {
                 dti,
                 size_compressed,
                 size_uncompressed,
-                quality: quality as u8, // only 3 bits, so it's fine
+                _quality: quality as u8, // only 3 bits, so it's fine
                 offset,
             })
         }
@@ -154,6 +155,6 @@ impl<Backing: Read + Seek> ArchiveFile<Backing> {
 
 #[test]
 fn test_struct_sizes() {
-    assert_eq!(std::mem::size_of::<ArchiveHeader>(), 8);
-    assert_eq!(std::mem::size_of::<RawResourceInfo>(), 0x90);
+    assert_eq!(size_of::<ArchiveHeader>(), 8);
+    assert_eq!(size_of::<RawResourceInfo>(), 0x90);
 }
