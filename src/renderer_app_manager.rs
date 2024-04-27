@@ -17,14 +17,14 @@ pub trait RendererApp {
 
     fn render(
         &mut self,
-        manager: &RendererAppManagerInternal,
+        manager: &RendererAppManagerPublic,
         frame_view: &wgpu::TextureView,
         encoder: &mut wgpu::CommandEncoder,
     ) -> anyhow::Result<()>;
 }
 
 /// Not the best name... contains render manager fields state that is accessible to apps
-pub struct RendererAppManagerInternal {
+pub struct RendererAppManagerPublic {
     window: Arc<Window>,
 
     config: wgpu::SurfaceConfiguration,
@@ -33,7 +33,7 @@ pub struct RendererAppManagerInternal {
     queue: wgpu::Queue,
 }
 
-impl RendererAppManagerInternal {
+impl RendererAppManagerPublic {
     pub fn config(&self) -> &wgpu::SurfaceConfiguration {
         &self.config
     }
@@ -48,7 +48,7 @@ impl RendererAppManagerInternal {
 }
 
 pub struct RendererAppManager<A: RendererApp> {
-    internal: RendererAppManagerInternal,
+    public: RendererAppManagerPublic,
     app: A,
 }
 
@@ -105,7 +105,7 @@ where
         let app = A::setup(&device, &queue, swapchain_format)?;
 
         Ok(RendererAppManager {
-            internal: RendererAppManagerInternal {
+            public: RendererAppManagerPublic {
                 window,
 
                 config,
@@ -119,20 +119,20 @@ where
     }
 
     fn resize(&mut self, new_size: &winit::dpi::PhysicalSize<u32>) {
-        self.internal.config.width = new_size.width.max(1);
-        self.internal.config.height = new_size.height.max(1);
+        self.public.config.width = new_size.width.max(1);
+        self.public.config.height = new_size.height.max(1);
         trace!("resize window: {:?}", new_size);
-        self.internal
+        self.public
             .surface
-            .configure(&self.internal.device, &self.internal.config);
+            .configure(&self.public.device, &self.public.config);
 
         // On macos the window needs to be redrawn manually after resizing
-        self.internal.window.request_redraw();
+        self.public.window.request_redraw();
     }
 
     fn render(&mut self) -> anyhow::Result<()> {
         let frame = self
-            .internal
+            .public
             .surface
             .get_current_texture()
             .expect("Failed to acquire next swap chain texture");
@@ -141,16 +141,16 @@ where
             .create_view(&wgpu::TextureViewDescriptor::default());
 
         let mut encoder = self
-            .internal
+            .public
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-        self.app.render(&self.internal, &frame_view, &mut encoder)?;
+        self.app.render(&self.public, &frame_view, &mut encoder)?;
 
-        self.internal.queue.submit(Some(encoder.finish()));
+        self.public.queue.submit(Some(encoder.finish()));
         frame.present();
 
-        self.internal.window.request_redraw();
+        self.public.window.request_redraw();
 
         Ok(())
     }

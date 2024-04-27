@@ -3,7 +3,7 @@ use std::{mem::size_of, path::PathBuf};
 use glam::Mat4;
 use mt_renderer::{
     model::Model,
-    renderer_app_manager::{RendererApp, RendererAppManager, RendererAppManagerInternal},
+    renderer_app_manager::{RendererApp, RendererAppManager, RendererAppManagerPublic},
     resource_manager::ResourceManager,
     rmaterial::MaterialFile,
     rmodel::ModelFile,
@@ -127,7 +127,7 @@ impl RendererApp for ModelViewerApp {
 
     fn render(
         &mut self,
-        manager: &RendererAppManagerInternal,
+        manager: &RendererAppManagerPublic,
         frame_view: &wgpu::TextureView,
         encoder: &mut wgpu::CommandEncoder,
     ) -> anyhow::Result<()> {

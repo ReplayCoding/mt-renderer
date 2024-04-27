@@ -1,5 +1,5 @@
 use mt_renderer::{
-    renderer_app_manager::{RendererApp, RendererAppManager, RendererAppManagerInternal},
+    renderer_app_manager::{RendererApp, RendererAppManager, RendererAppManagerPublic},
     rtexture::TextureFile,
     texture::Texture,
 };
@@ -97,7 +97,7 @@ impl RendererApp for TextureViewerApp {
 
     fn render(
         &mut self,
-        _manager: &RendererAppManagerInternal,
+        _manager: &RendererAppManagerPublic,
         frame_view: &wgpu::TextureView,
         encoder: &mut wgpu::CommandEncoder,
     ) -> anyhow::Result<()> {
