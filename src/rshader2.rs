@@ -102,10 +102,17 @@ pub struct Shader2ObjectStructInfo {
 }
 
 #[derive(Debug)]
+pub struct Shader2ObjectCBufferInfo {
+    crc: u32,
+    variables: Vec<Shader2Variable>,
+}
+
+#[derive(Debug)]
 pub enum Shader2ObjectTypedInfo {
     None,
     InputLayout(Shader2ObjectInputLayoutInfo),
     Struct(Shader2ObjectStructInfo),
+    CBuffer(Shader2ObjectCBufferInfo),
 }
 
 #[repr(u32)]
@@ -170,6 +177,15 @@ struct RawShader2Struct {
     bitfield_0: u32,
     padding1: u32,
     members: u64, // VARIABLE*
+}
+
+#[repr(C, packed)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, Debug)]
+struct RawShader2CBuffer {
+    bitfield_0: u32,
+    crc: u32,
+    variables: u64,   // VARIABLE*
+    pinitvalues: u64, // void*
 }
 
 #[repr(C, packed)]
@@ -327,6 +343,22 @@ impl Shader2File {
             let obj_type = ObjectType::from_repr(object.obj_type()).expect("Unknown object type");
             let obj_specific_bytes = &object_bytes[size_of::<RawShader2Object>()..];
             let obj_specific = match obj_type {
+                ObjectType::OT_CBUFFER => {
+                    let raw_cbuffer: &RawShader2CBuffer =
+                        bytemuck::from_bytes(&obj_specific_bytes[..size_of::<RawShader2CBuffer>()]);
+
+                    let num_variables = (raw_cbuffer.bitfield_0 >> 16) & 0xffff;
+
+                    Shader2ObjectTypedInfo::CBuffer(Shader2ObjectCBufferInfo {
+                        crc: raw_cbuffer.crc,
+                        variables: parse_variables(
+                            raw_cbuffer.variables,
+                            num_variables,
+                            &file_data,
+                            stringtable_bytes,
+                        ),
+                    })
+                }
                 ObjectType::OT_STRUCT => {
                     let raw_struct: &RawShader2Struct =
                         bytemuck::from_bytes(&obj_specific_bytes[..size_of::<RawShader2Struct>()]);
@@ -519,4 +551,5 @@ fn test_struct_sizes() {
     assert_eq!(size_of::<RawShader2InputLayout>(), 16);
     assert_eq!(size_of::<RawShader2Struct>(), 16);
     assert_eq!(size_of::<RawShader2Variable>(), 0x30);
+    assert_eq!(size_of::<RawShader2CBuffer>(), 24);
 }
