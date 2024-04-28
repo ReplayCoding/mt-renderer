@@ -42,6 +42,10 @@ impl RawShader2Object {
     fn obj_type(&self) -> u32 {
         self.bitfield_0x10 & 0x3f
     }
+
+    fn annotation_num(&self) -> u32 {
+        self.bitfield_0x10 >> 0x16
+    }
 }
 
 #[repr(C, packed)]
@@ -134,6 +138,7 @@ enum ObjectType {
 pub struct Shader2Object {
     name: String,
     sname: Option<String>,
+    annotations: Option<Vec<Shader2Variable>>,
     obj_type: ObjectType,
     name_hash: u32,
 
@@ -171,13 +176,16 @@ struct RawShader2Struct {
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, Debug)]
 struct RawShader2Variable {
     name: u64,          // MT_CSTR
-    padding1: [u8; 20], // TODO: this isn't padding!
-    padding2: [u8; 20], // TODO: this isn't padding!
+    bitfield_0x8: u32,
+    field_4: u32, // anonymous enum
+    sname: u64, // MT_CSTR
+    padding2: [u8; 24], // TODO: this isn't padding!
 }
 
 #[derive(Debug)]
 struct Shader2Variable {
     name: String,
+    sname: String,
 }
 
 pub struct Shader2File {
@@ -213,10 +221,15 @@ impl Shader2File {
                     let variable_name =
                         CStr::from_bytes_until_nul(&stringtable_bytes[variable.name as usize..])
                             .expect("Unable to decode variable name for struct");
+                    let variable_sname =
+                        CStr::from_bytes_until_nul(&stringtable_bytes[variable.sname as usize..])
+                            .expect("Unable to decode variable name for struct");
+
                     debug!("member #{} name {:?}", member_idx, variable_name);
 
                     Shader2Variable {
                         name: variable_name.to_string_lossy().to_string(),
+                        sname: variable_sname.to_string_lossy().to_string(),
                     }
                 })
                 .collect()
@@ -247,6 +260,20 @@ impl Shader2File {
 
             let name_hash = crate::crc32(name.to_bytes(), 0xffff_ffff) & 0xfffff;
             debug!("object {:?} {:?} {}", name, object, object.obj_type());
+
+            let annotations = if object.annotations != 0 {
+                warn!(
+                    "object anot {:?} {:?} {} {:08x}",
+                    name,
+                    object,
+                    object.obj_type(),
+                    (object.annotations as u64)
+                );
+
+                Some(parse_variables(object.annotations, object.annotation_num()))
+            } else {
+                None
+            };
 
             let obj_type = ObjectType::from_repr(object.obj_type()).expect("Unknown object type");
             let obj_specific_bytes = &object_bytes[size_of::<RawShader2Object>()..];
@@ -319,6 +346,7 @@ impl Shader2File {
                 name: name.to_string_lossy().to_string(),
                 sname: sname.map(|x| x.to_string_lossy().to_string()),
                 obj_type,
+                annotations,
                 name_hash,
                 obj_specific,
             });
