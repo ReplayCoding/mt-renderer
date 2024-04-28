@@ -93,9 +93,15 @@ pub struct Shader2ObjectInputLayoutInfo {
 }
 
 #[derive(Debug)]
+pub struct Shader2ObjectStructInfo {
+    variables: Vec<Shader2Variable>,
+}
+
+#[derive(Debug)]
 pub enum Shader2ObjectTypedInfo {
     None,
     InputLayout(Shader2ObjectInputLayoutInfo),
+    Struct(Shader2ObjectStructInfo),
 }
 
 #[repr(u32)]
@@ -153,6 +159,27 @@ struct RawShader2InputLayout {
                          // elements: [RawShader2InputElement; ...]
 }
 
+#[repr(C, packed)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, Debug)]
+struct RawShader2Struct {
+    bitfield_0: u32,
+    padding1: u32,
+    members: u64, // VARIABLE*
+}
+
+#[repr(C, packed)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, Debug)]
+struct RawShader2Variable {
+    name: u64,          // MT_CSTR
+    padding1: [u8; 20], // TODO: this isn't padding!
+    padding2: [u8; 20], // TODO: this isn't padding!
+}
+
+#[derive(Debug)]
+struct Shader2Variable {
+    name: String,
+}
+
 pub struct Shader2File {
     name_hash_to_object: HashMap<u32, usize>,
     objects: Vec<Shader2Object>,
@@ -172,6 +199,28 @@ impl Shader2File {
         };
 
         let stringtable_bytes = &file_data[header.stringtable_offs as usize..];
+
+        let parse_variables = |variables_offset: u64, variables_num: u32| -> Vec<Shader2Variable> {
+            (0..variables_num)
+                .map(|member_idx| {
+                    let variable_offset = (member_idx as usize * size_of::<RawShader2Variable>())
+                        + variables_offset as usize;
+
+                    let variable_bytes = &file_data
+                        [variable_offset..variable_offset + size_of::<RawShader2Variable>()];
+
+                    let variable: &RawShader2Variable = bytemuck::from_bytes(variable_bytes);
+                    let variable_name =
+                        CStr::from_bytes_until_nul(&stringtable_bytes[variable.name as usize..])
+                            .expect("Unable to decode variable name for struct");
+                    debug!("member #{} name {:?}", member_idx, variable_name);
+
+                    Shader2Variable {
+                        name: variable_name.to_string_lossy().to_string(),
+                    }
+                })
+                .collect()
+        };
 
         let mut objects = vec![];
 
@@ -203,12 +252,20 @@ impl Shader2File {
             let obj_specific_bytes = &object_bytes[size_of::<RawShader2Object>()..];
             let obj_specific = match obj_type {
                 ObjectType::OT_STRUCT => {
-                    // todo!()
-                    Shader2ObjectTypedInfo::None
+                    // TODO
+                    let raw_struct: &RawShader2Struct =
+                        bytemuck::from_bytes(&obj_specific_bytes[..size_of::<RawShader2Struct>()]);
+
+                    let num_members = (raw_struct.bitfield_0 >> 0xa) & 0xfff;
+                    let size = raw_struct.bitfield_0 & 0x3ff;
+
+                    debug!("{:#?} member#: {}, size {}", raw_struct, num_members, size);
+                    let variables = parse_variables(raw_struct.members, num_members);
+
+                    Shader2ObjectTypedInfo::Struct(Shader2ObjectStructInfo { variables })
                 }
 
                 ObjectType::OT_INPUTLAYOUT => {
-                    // TODO: Make this whole thing a proper raw struct
                     let raw_inputlayout: &RawShader2InputLayout = bytemuck::from_bytes(
                         &obj_specific_bytes[..size_of::<RawShader2InputLayout>()],
                     );
@@ -380,4 +437,6 @@ fn test_struct_sizes() {
     assert_eq!(size_of::<RawShader2Object>(), 0x28);
     assert_eq!(size_of::<RawShader2InputElement>(), 0x10);
     assert_eq!(size_of::<RawShader2InputLayout>(), 16);
+    assert_eq!(size_of::<RawShader2Struct>(), 16);
+    assert_eq!(size_of::<RawShader2Variable>(), 0x30);
 }
