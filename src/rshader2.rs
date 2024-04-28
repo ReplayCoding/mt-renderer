@@ -205,6 +205,8 @@ struct Shader2Variable {
     ctype: ClassType,
     size: u32,
     annotations: Option<Vec<Shader2Variable>>,
+    sindex: u32,
+    offset: u32,
 }
 
 pub struct Shader2File {
@@ -235,16 +237,21 @@ fn parse_variables(
 
             debug!("member #{} name {:?}", member_idx, name);
 
-            let attr = variable.bitfield_0x8 & 0x7ffff;
+            // TODO: handle attr
+            let _attr = variable.bitfield_0x8 & 0x7ffff;
             let ctype = (variable.bitfield_0x8 >> 19) & 0x7;
             let size = (variable.bitfield_0x8 >> 22) & 0x3ff;
-            debug!("\tattr {} ctype {} size {}", attr, ctype, size);
+
+            let sindex = (variable.bitfield_0x18) & 0xff;
+            let offset = (variable.bitfield_0x18 >> 8) & 0x3ff;
+            // TODO: what is this for?
+            let _svalue = (variable.bitfield_0x18 >> 18) & 0x3f;
+            let annotation_num = (variable.bitfield_0x18 >> 24) & 0xff;
 
             let annotations = if variable.annotations != 0 {
-                let num_annotations = (variable.bitfield_0x18 >> 24) & 0xff;
                 Some(parse_variables(
                     variable.annotations,
-                    num_annotations,
+                    annotation_num,
                     file_data,
                     stringtable_bytes,
                 ))
@@ -257,6 +264,8 @@ fn parse_variables(
                 sname: sname.to_string_lossy().to_string(),
                 ctype: ClassType::from_repr(ctype).expect("invalid ctype"),
                 size,
+                sindex,
+                offset,
                 annotations,
             }
         })
@@ -319,7 +328,6 @@ impl Shader2File {
             let obj_specific_bytes = &object_bytes[size_of::<RawShader2Object>()..];
             let obj_specific = match obj_type {
                 ObjectType::OT_STRUCT => {
-                    // TODO
                     let raw_struct: &RawShader2Struct =
                         bytemuck::from_bytes(&obj_specific_bytes[..size_of::<RawShader2Struct>()]);
 
