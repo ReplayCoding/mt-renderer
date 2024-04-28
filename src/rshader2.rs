@@ -175,22 +175,92 @@ struct RawShader2Struct {
 #[repr(C, packed)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, Debug)]
 struct RawShader2Variable {
-    name: u64,          // MT_CSTR
+    name: u64, // MT_CSTR
     bitfield_0x8: u32,
     field_4: u32, // anonymous enum
-    sname: u64, // MT_CSTR
-    padding2: [u8; 24], // TODO: this isn't padding!
+    sname: u64,   // MT_CSTR
+    bitfield_0x18: u32,
+    padding1: u32,
+    annotations: u64, // VARIABLE*
+    pinitvalues: u64, // void*
+}
+
+#[repr(u32)]
+#[derive(strum::FromRepr, Debug)]
+#[allow(non_camel_case_types)]
+enum ClassType {
+    CT_UNDEFINED = 0,
+    CT_VOID = 1,
+    CT_SCALAR = 2,
+    CT_VECTOR = 3,
+    CT_MATRIX = 4,
+    CT_STRUCT = 5,
+    CT_OBJECT = 6,
 }
 
 #[derive(Debug)]
 struct Shader2Variable {
     name: String,
     sname: String,
+    ctype: ClassType,
+    size: u32,
+    annotations: Option<Vec<Shader2Variable>>,
 }
 
 pub struct Shader2File {
     name_hash_to_object: HashMap<u32, usize>,
     objects: Vec<Shader2Object>,
+}
+
+fn parse_variables(
+    variables_offset: u64,
+    variables_num: u32,
+    file_data: &[u8],
+    stringtable_bytes: &[u8],
+) -> Vec<Shader2Variable> {
+    (0..variables_num)
+        .map(|member_idx| {
+            let variable_offset =
+                (member_idx as usize * size_of::<RawShader2Variable>()) + variables_offset as usize;
+            let variable_bytes =
+                &file_data[variable_offset..variable_offset + size_of::<RawShader2Variable>()];
+            let variable: &RawShader2Variable = bytemuck::from_bytes(variable_bytes);
+
+            let name = CStr::from_bytes_until_nul(&stringtable_bytes[variable.name as usize..])
+                .expect("Unable to decode variable name for struct");
+            let sname = CStr::from_bytes_until_nul(&stringtable_bytes[variable.sname as usize..])
+                .expect("Unable to decode variable name for struct");
+
+            assert_eq!(variable.padding1 as u32, 0);
+
+            debug!("member #{} name {:?}", member_idx, name);
+
+            let attr = variable.bitfield_0x8 & 0x7ffff;
+            let ctype = (variable.bitfield_0x8 >> 19) & 0x7;
+            let size = (variable.bitfield_0x8 >> 22) & 0x3ff;
+            debug!("\tattr {} ctype {} size {}", attr, ctype, size);
+
+            let annotations = if variable.annotations != 0 {
+                let num_annotations = (variable.bitfield_0x18 >> 24) & 0xff;
+                Some(parse_variables(
+                    variable.annotations,
+                    num_annotations,
+                    file_data,
+                    stringtable_bytes,
+                ))
+            } else {
+                None
+            };
+
+            Shader2Variable {
+                name: name.to_string_lossy().to_string(),
+                sname: sname.to_string_lossy().to_string(),
+                ctype: ClassType::from_repr(ctype).expect("invalid ctype"),
+                size,
+                annotations,
+            }
+        })
+        .collect()
 }
 
 impl Shader2File {
@@ -207,33 +277,6 @@ impl Shader2File {
         };
 
         let stringtable_bytes = &file_data[header.stringtable_offs as usize..];
-
-        let parse_variables = |variables_offset: u64, variables_num: u32| -> Vec<Shader2Variable> {
-            (0..variables_num)
-                .map(|member_idx| {
-                    let variable_offset = (member_idx as usize * size_of::<RawShader2Variable>())
-                        + variables_offset as usize;
-
-                    let variable_bytes = &file_data
-                        [variable_offset..variable_offset + size_of::<RawShader2Variable>()];
-
-                    let variable: &RawShader2Variable = bytemuck::from_bytes(variable_bytes);
-                    let variable_name =
-                        CStr::from_bytes_until_nul(&stringtable_bytes[variable.name as usize..])
-                            .expect("Unable to decode variable name for struct");
-                    let variable_sname =
-                        CStr::from_bytes_until_nul(&stringtable_bytes[variable.sname as usize..])
-                            .expect("Unable to decode variable name for struct");
-
-                    debug!("member #{} name {:?}", member_idx, variable_name);
-
-                    Shader2Variable {
-                        name: variable_name.to_string_lossy().to_string(),
-                        sname: variable_sname.to_string_lossy().to_string(),
-                    }
-                })
-                .collect()
-        };
 
         let mut objects = vec![];
 
@@ -262,15 +305,12 @@ impl Shader2File {
             debug!("object {:?} {:?} {}", name, object, object.obj_type());
 
             let annotations = if object.annotations != 0 {
-                warn!(
-                    "object anot {:?} {:?} {} {:08x}",
-                    name,
-                    object,
-                    object.obj_type(),
-                    (object.annotations as u64)
-                );
-
-                Some(parse_variables(object.annotations, object.annotation_num()))
+                Some(parse_variables(
+                    object.annotations,
+                    object.annotation_num(),
+                    &file_data,
+                    &stringtable_bytes,
+                ))
             } else {
                 None
             };
@@ -284,10 +324,14 @@ impl Shader2File {
                         bytemuck::from_bytes(&obj_specific_bytes[..size_of::<RawShader2Struct>()]);
 
                     let num_members = (raw_struct.bitfield_0 >> 0xa) & 0xfff;
-                    let size = raw_struct.bitfield_0 & 0x3ff;
 
-                    debug!("{:#?} member#: {}, size {}", raw_struct, num_members, size);
-                    let variables = parse_variables(raw_struct.members, num_members);
+                    debug!("{:#?} member#: {}", raw_struct, num_members);
+                    let variables = parse_variables(
+                        raw_struct.members,
+                        num_members,
+                        &file_data,
+                        &stringtable_bytes,
+                    );
 
                     Shader2ObjectTypedInfo::Struct(Shader2ObjectStructInfo { variables })
                 }
