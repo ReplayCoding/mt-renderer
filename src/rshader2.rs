@@ -46,6 +46,14 @@ impl RawShader2Object {
     fn annotation_num(&self) -> u32 {
         self.bitfield_0x10 >> 0x16
     }
+
+    fn sindex(&self) -> u32 {
+        self.bitfield_0x14 & 0xffff
+    }
+
+    fn index(&self) -> u32 {
+        (self.bitfield_0x14 >> 16) & 0xffff
+    }
 }
 
 #[repr(C, packed)]
@@ -148,6 +156,8 @@ pub struct Shader2Object {
     annotations: Option<Vec<Shader2Variable>>,
     obj_type: ObjectType,
     name_hash: u32,
+    sindex: u32,
+    index: u32,
 
     obj_specific: Shader2ObjectTypedInfo,
 }
@@ -433,6 +443,8 @@ impl Shader2File {
                 annotations,
                 name_hash,
                 obj_specific,
+                sindex: object.sindex(),
+                index: object.index(),
             });
         }
 
