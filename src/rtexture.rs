@@ -6,6 +6,8 @@ use std::{
 use bytemuck::{Pod, Zeroable};
 use log::debug;
 
+use crate::util;
+
 #[repr(u32)]
 #[derive(strum::FromRepr, Debug, Copy, Clone)]
 #[allow(non_camel_case_types, unused)]
@@ -109,9 +111,7 @@ pub struct TextureFile {
 
 impl TextureFile {
     pub fn new<R: Read + Seek>(reader: &mut R) -> anyhow::Result<Self> {
-        let mut header_bytes = [0u8; size_of::<TextureHeader>()];
-        reader.read_exact(&mut header_bytes)?;
-        let header: &TextureHeader = bytemuck::from_bytes(&header_bytes);
+        let header: TextureHeader = util::read_struct(reader)?;
 
         debug!("HEADER: {:#x?}", header);
         debug!(

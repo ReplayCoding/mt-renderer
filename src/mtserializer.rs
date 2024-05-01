@@ -5,7 +5,7 @@ use std::{
 
 use log::debug;
 
-use crate::DTI;
+use crate::{util, DTI};
 
 #[repr(C, packed)]
 #[derive(bytemuck::Zeroable, bytemuck::Pod, Clone, Copy, Debug)]
@@ -28,9 +28,7 @@ pub struct MtSerializer {}
 
 impl MtSerializer {
     pub fn new<R: Read + Seek>(reader: &mut R) -> anyhow::Result<Self> {
-        let mut header_bytes = [0u8; size_of::<Header>()];
-        reader.read_exact(&mut header_bytes)?;
-        let header: &Header = bytemuck::from_bytes(&header_bytes);
+        let header: Header = util::read_struct(reader)?;
 
         assert_eq!(header.magic.to_le_bytes(), "XFS\0".as_bytes());
         assert_eq!((header.major_version as u16), 16);

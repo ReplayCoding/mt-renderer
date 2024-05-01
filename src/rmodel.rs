@@ -6,6 +6,8 @@ use std::{
     mem::size_of,
 };
 
+use crate::util;
+
 #[repr(C, packed)]
 #[derive(Clone, Copy, Pod, Zeroable, Debug)]
 struct MtVector3 {
@@ -234,10 +236,7 @@ pub struct ModelFile {
 
 impl ModelFile {
     pub fn new<R: Read + Seek>(reader: &mut R) -> anyhow::Result<ModelFile> {
-        let mut header_bytes: [u8; 0xa0] = [0; 0xa0];
-        reader.read_exact(&mut header_bytes)?;
-
-        let header: &ModelHdr = bytemuck::try_from_bytes(&header_bytes).unwrap();
+        let header: ModelHdr = util::read_struct(reader)?;
 
         let mut boundary_num_bytes: [u8; 4] = [0; 4];
         reader.read_exact(&mut boundary_num_bytes)?;

@@ -9,7 +9,7 @@ use std::{
 use flate2::read::ZlibDecoder;
 use log::{debug, trace};
 
-use crate::DTI;
+use crate::{util, DTI};
 
 #[repr(C, packed)]
 #[derive(bytemuck::Pod, bytemuck::Zeroable, Debug, Clone, Copy)]
@@ -58,9 +58,7 @@ pub struct ArchiveFile<Backing: Read + Seek> {
 
 impl<Backing: Read + Seek> ArchiveFile<Backing> {
     pub fn new(mut reader: Backing) -> anyhow::Result<Self> {
-        let mut header_bytes = [0u8; size_of::<ArchiveHeader>()];
-        reader.read_exact(&mut header_bytes)?;
-        let header: &ArchiveHeader = bytemuck::from_bytes(&header_bytes);
+        let header: ArchiveHeader = util::read_struct(&mut reader)?;
 
         debug!("archive header: {:#?}", header);
 
@@ -69,10 +67,7 @@ impl<Backing: Read + Seek> ArchiveFile<Backing> {
         let mut resources: Vec<ResourceInfo> = vec![];
 
         for _ in 0..header.num_resources {
-            let mut raw_resource_info_bytes = [0u8; size_of::<RawResourceInfo>()];
-            reader.read_exact(&mut raw_resource_info_bytes)?;
-            let raw_resource_info: &RawResourceInfo =
-                bytemuck::from_bytes(&raw_resource_info_bytes);
+            let raw_resource_info: RawResourceInfo = util::read_struct(&mut reader)?;
 
             let path = PathBuf::from(OsString::from(
                 CStr::from_bytes_until_nul(&raw_resource_info.path)?

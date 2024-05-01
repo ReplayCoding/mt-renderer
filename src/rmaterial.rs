@@ -6,7 +6,7 @@ use std::{
 
 use log::{debug, warn};
 
-use crate::{rshader2::Shader2File, DTI};
+use crate::{rshader2::Shader2File, util, DTI};
 
 #[repr(C, packed)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -176,18 +176,14 @@ pub struct MaterialFile {
 
 impl MaterialFile {
     pub fn new<R: Read + Seek>(reader: &mut R, shader2: &Shader2File) -> anyhow::Result<Self> {
-        let mut header_bytes = [0u8; size_of::<MaterialHeader>()];
-        reader.read_exact(&mut header_bytes)?;
-        let header: &MaterialHeader = bytemuck::from_bytes(&header_bytes);
+        let header: MaterialHeader = util::read_struct(reader)?;
 
         debug!("material header: {:#?}", header);
 
         reader.seek(std::io::SeekFrom::Start(header.textures))?;
         let textures: Vec<_> = (0..header.texture_num)
             .map(|i| {
-                let mut texture_info_bytes = [0u8; size_of::<RawTextureInfo>()];
-                reader.read_exact(&mut texture_info_bytes).unwrap();
-                let texture_info: &RawTextureInfo = bytemuck::from_bytes(&texture_info_bytes);
+                let texture_info: RawTextureInfo = util::read_struct(reader)?;
 
                 let texture_path = texture_info.path();
                 let texture_dti = texture_info.dti();
@@ -199,9 +195,9 @@ impl MaterialFile {
                     texture_path
                 );
 
-                texture_path.to_string()
+                Ok(texture_path.to_string())
             })
-            .collect();
+            .collect::<anyhow::Result<Vec<String>>>()?;
 
         let materials: Vec<_> = (0..header.material_num).map(|material_idx | {
             reader.seek(std::io::SeekFrom::Start(
@@ -209,9 +205,7 @@ impl MaterialFile {
                     + (material_idx as u64 * size_of::<RawMaterialInfo>() as u64),
             )).unwrap();
 
-            let mut material_info_bytes = [0u8; size_of::<RawMaterialInfo>()];
-            reader.read_exact(&mut material_info_bytes).unwrap();
-            let material_info: &RawMaterialInfo = bytemuck::from_bytes(&material_info_bytes[..]);
+            let material_info: RawMaterialInfo = util::read_struct(reader)?;
 
             debug!(
                 "material {} dti {:?} namehash {:08x} state_bufsize {} state_num {} | bs {:?} ds {:?} rs {:?}",
@@ -242,14 +236,13 @@ impl MaterialFile {
                         + (state_idx as u64 * size_of::<RawMaterialState>() as u64),
                 )).unwrap();
 
-                let mut state_bytes = [0u8; size_of::<RawMaterialState>()];
-                reader.read_exact(&mut state_bytes).unwrap();
-                let state: &RawMaterialState = bytemuck::from_bytes(&state_bytes);
+                let state: RawMaterialState = util::read_struct(reader)?;
 
                 let state_sh_obj = shader2.get_object_by_handle(state.sh_crc()).unwrap();
                 debug!(
                     "gr {} idx {} st {:?} obj {:?}",
                     state.group(),
+                    // What is this?
                     state.index(),
                     state.state_type(),
                     state_sh_obj.name()
@@ -289,12 +282,12 @@ impl MaterialFile {
                 }
             }
 
-            MaterialInfo {
+            Ok(MaterialInfo {
                 name_hash: material_info.name_hash(),
                 mat_type: material_info.dti(),
                 albedo_texture_idx,
-            }
-        }).collect();
+            })
+        }).collect::<anyhow::Result<Vec<MaterialInfo>>>()?;
 
         Ok(Self {
             textures,
