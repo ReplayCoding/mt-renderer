@@ -100,19 +100,19 @@ struct Shader2InputElement {
 
 #[derive(Debug, Clone)]
 pub struct Shader2ObjectInputLayoutInfo {
-    stride: u32,
+    _stride: u32,
     elements: Vec<Shader2InputElement>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Shader2ObjectStructInfo {
-    variables: Vec<Shader2Variable>,
+    _variables: Vec<Shader2Variable>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Shader2ObjectCBufferInfo {
-    crc: u32,
-    variables: Vec<Shader2Variable>,
+    _crc: u32,
+    _variables: Vec<Shader2Variable>,
 }
 
 #[derive(Debug, Clone)]
@@ -226,13 +226,13 @@ enum ClassType {
 
 #[derive(Debug, Clone)]
 struct Shader2Variable {
-    name: String,
-    sname: String,
-    ctype: ClassType,
-    size: u32,
-    annotations: Option<Vec<Shader2Variable>>,
-    sindex: u32,
-    offset: u32,
+    _name: String,
+    _sname: String,
+    _ctype: ClassType,
+    _size: u32,
+    _annotations: Option<Vec<Shader2Variable>>,
+    _sindex: u32,
+    _offset: u32,
 }
 
 pub struct Shader2File {
@@ -286,13 +286,13 @@ fn parse_variables(
             };
 
             Shader2Variable {
-                name: name.to_string_lossy().to_string(),
-                sname: sname.to_string_lossy().to_string(),
-                ctype: ClassType::from_repr(ctype).expect("invalid ctype"),
-                size,
-                sindex,
-                offset,
-                annotations,
+                _name: name.to_string_lossy().to_string(),
+                _sname: sname.to_string_lossy().to_string(),
+                _ctype: ClassType::from_repr(ctype).expect("invalid ctype"),
+                _size: size,
+                _sindex: sindex,
+                _offset: offset,
+                _annotations: annotations,
             }
         })
         .collect()
@@ -344,7 +344,7 @@ impl Shader2File {
                     object.annotations,
                     object.annotation_num(),
                     &file_data,
-                    &stringtable_bytes,
+                    stringtable_bytes,
                 ))
             } else {
                 None
@@ -360,8 +360,8 @@ impl Shader2File {
                     let num_variables = (raw_cbuffer.bitfield_0 >> 16) & 0xffff;
 
                     Shader2ObjectTypedInfo::CBuffer(Shader2ObjectCBufferInfo {
-                        crc: raw_cbuffer.crc,
-                        variables: parse_variables(
+                        _crc: raw_cbuffer.crc,
+                        _variables: parse_variables(
                             raw_cbuffer.variables,
                             num_variables,
                             &file_data,
@@ -380,10 +380,12 @@ impl Shader2File {
                         raw_struct.members,
                         num_members,
                         &file_data,
-                        &stringtable_bytes,
+                        stringtable_bytes,
                     );
 
-                    Shader2ObjectTypedInfo::Struct(Shader2ObjectStructInfo { variables })
+                    Shader2ObjectTypedInfo::Struct(Shader2ObjectStructInfo {
+                        _variables: variables,
+                    })
                 }
 
                 ObjectType::OT_INPUTLAYOUT => {
@@ -429,7 +431,7 @@ impl Shader2File {
                         elements.push(element_parsed);
                     }
                     Shader2ObjectTypedInfo::InputLayout(Shader2ObjectInputLayoutInfo {
-                        stride,
+                        _stride: stride,
                         elements,
                     })
                 }

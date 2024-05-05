@@ -18,7 +18,7 @@ fn main() -> anyhow::Result<()> {
     let shader2 = Shader2File::new(&mut shader_file)?;
 
     let mut file = resource_manager.get_resource_fancy(&args[2], &DTIs::rShaderPackage)?;
-    let shader_package = ShaderPackageFile::new(&mut file, &shader2)?;
+    let _shader_package = ShaderPackageFile::new(&mut file, &shader2)?;
 
     // println!("{:#?}", shader_package);
 

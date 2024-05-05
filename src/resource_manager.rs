@@ -53,7 +53,7 @@ impl ResourceManager {
         }
 
         let file = std::fs::File::open(
-            &self
+            self
                 .base_path
                 .join(path.with_extension(DTIs::rArchive.file_ext().unwrap())),
         )?;
@@ -69,10 +69,9 @@ impl ResourceManager {
     /// the resource from that archive
     pub fn get_resource_fancy(&mut self, path: &str, dti: &DTI) -> anyhow::Result<Resource> {
         let (archive_path, path): (Option<&str>, &str) = path
-            .split_once(":")
+            .split_once(':')
             .map(|(a, p)| (Some(a), p))
-            .or_else(|| Some((None, path)))
-            .unwrap();
+            .unwrap_or((None, path));
 
         if let Some(archive_path) = archive_path {
             self.add_archive(&PathBuf::from(archive_path))?;

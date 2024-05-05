@@ -1,7 +1,6 @@
 use std::{
     ffi::{CStr, OsString},
     io::{Cursor, Read, Seek},
-    mem::size_of,
     path::{Path, PathBuf},
     sync::Mutex,
 };
@@ -73,7 +72,7 @@ impl<Backing: Read + Seek> ArchiveFile<Backing> {
                 CStr::from_bytes_until_nul(&raw_resource_info.path)?
                     .to_string_lossy()
                     .to_string() // lol
-                    .replace("\\", "/"),
+                    .replace('\\', "/"),
             ));
 
             let dti = DTI::from_hash(raw_resource_info.dti_type).unwrap();
@@ -150,6 +149,8 @@ impl<Backing: Read + Seek> ArchiveFile<Backing> {
 
 #[test]
 fn test_struct_sizes() {
+    use std::mem::size_of;
+
     assert_eq!(size_of::<ArchiveHeader>(), 8);
     assert_eq!(size_of::<RawResourceInfo>(), 0x90);
 }

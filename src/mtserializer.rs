@@ -1,7 +1,4 @@
-use std::{
-    io::{Read, Seek},
-    mem::size_of,
-};
+use std::io::{Read, Seek};
 
 use log::debug;
 
@@ -21,7 +18,7 @@ struct Header {
     database_size: u32,
 }
 
-struct RawObjectInfo {}
+struct _RawObjectInfo {}
 
 #[derive(Debug)]
 pub struct MtSerializer {}
@@ -70,5 +67,7 @@ impl MtSerializer {
 
 #[test]
 fn test_struct_sizes() {
+    use std::mem::size_of;
+
     assert_eq!(0x18, size_of::<Header>());
 }

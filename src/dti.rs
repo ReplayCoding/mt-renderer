@@ -23,7 +23,7 @@ impl DTI {
     }
 
     pub fn name(&self) -> &str {
-        &self.name
+        self.name
     }
 
     pub fn hash(&self) -> u32 {

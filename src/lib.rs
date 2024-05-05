@@ -1,4 +1,5 @@
 // Used by read_struct in util/read_struct.rs
+#![allow(incomplete_features)]
 #![feature(generic_const_exprs)]
 
 pub mod crc;
@@ -16,8 +17,8 @@ pub mod rarchive;
 pub mod rmaterial;
 pub mod rmodel;
 pub mod rshader2;
-pub mod rtexture;
 pub mod rshaderpackage;
+pub mod rtexture;
 
 pub mod model;
 pub mod texture;

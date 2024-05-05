@@ -80,13 +80,13 @@ struct RawShaderPackageShaderCodeInfo {
 
 #[derive(Debug)]
 struct ShaderPackageShaderInput {
-    layouts: [Option<Shader2Object>; 4], // SO_HANDLE[4]
-    crc: u32,
+    _layouts: [Option<Shader2Object>; 4], // SO_HANDLE[4]
+    _crc: u32,
 }
 
 #[derive(Debug)]
 pub struct ShaderPackageFile {
-    inputs: Vec<ShaderPackageShaderInput>,
+    _inputs: Vec<ShaderPackageShaderInput>,
 }
 
 impl ShaderPackageFile {
@@ -106,7 +106,7 @@ impl ShaderPackageFile {
         debug!("header {:#08x?}", header);
         debug!("core? {:#08x?}", core);
 
-        let get_shaders = |num_shaders: u16, shaders_offs: u64, dump_prefix: &str| {
+        let get_shaders = |num_shaders: u16, shaders_offs: u64, _dump_prefix: &str| {
             (0..num_shaders).for_each(|idx| {
                 let info_offs = shaders_offs as usize
                     + (idx as usize * size_of::<RawShaderPackageShaderCodeInfo>());
@@ -117,7 +117,7 @@ impl ShaderPackageFile {
                 let code_size = (info.bitfield_0x0 >> 10) as usize;
                 let code_offs = info.pcode as usize;
 
-                let code_bytes = &body_bytes[code_offs..code_offs + code_size];
+                let _code_bytes = &body_bytes[code_offs..code_offs + code_size];
                 // std::fs::write(format!("shaders/{dump_prefix}_{idx}"), code_bytes).unwrap();
 
                 trace!(
@@ -141,18 +141,18 @@ impl ShaderPackageFile {
                     .map(|layout| shader2.get_object_by_handle(layout).cloned());
 
                 ShaderPackageShaderInput {
-                    layouts,
-                    crc: ia.crc,
+                    _layouts: layouts,
+                    _crc: ia.crc,
                 }
             })
             .collect();
 
-        let vertex_shaders = get_shaders(header.num_vertexshaders, core.vs_list, "vs");
-        let pixel_shaders = get_shaders(header.num_pixelshaders, core.ps_list, "ps");
-        let geometry_shaders = get_shaders(header.num_geometryshaders, core.gs_list, "gs");
-        let hull_shaders = get_shaders(header.num_hullshaders, core.hs_list, "hs");
-        let domain_shaders = get_shaders(header.num_domainshaders, core.ds_list, "ds");
-        let compute_shaders = get_shaders(header.num_computeshaders, core.cs_list, "ds");
+        let _vertex_shaders = get_shaders(header.num_vertexshaders, core.vs_list, "vs");
+        let _pixel_shaders = get_shaders(header.num_pixelshaders, core.ps_list, "ps");
+        let _geometry_shaders = get_shaders(header.num_geometryshaders, core.gs_list, "gs");
+        let _hull_shaders = get_shaders(header.num_hullshaders, core.hs_list, "hs");
+        let _domain_shaders = get_shaders(header.num_domainshaders, core.ds_list, "ds");
+        let _compute_shaders = get_shaders(header.num_computeshaders, core.cs_list, "ds");
 
         for shader_idx in 0..header.num_shaders {
             let shader_bytes_offs = size_of::<ShaderPackageCore>()
@@ -163,7 +163,7 @@ impl ShaderPackageFile {
             println!("{:#?}", shader_info);
         }
 
-        Ok(Self { inputs })
+        Ok(Self { _inputs: inputs })
     }
 }
 

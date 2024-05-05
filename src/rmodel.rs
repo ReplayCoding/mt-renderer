@@ -231,7 +231,7 @@ pub struct ModelFile {
 
     vertex_buf: Vec<u8>,
     index_buf: Vec<u16>,
-    boundary_infos: Vec<BoundaryInfo>,
+    _boundary_infos: Vec<BoundaryInfo>,
 }
 
 impl ModelFile {
@@ -328,7 +328,7 @@ impl ModelFile {
             material_names,
             primitives,
             parts,
-            boundary_infos,
+            _boundary_infos: boundary_infos,
             vertex_buf,
             index_buf,
         })

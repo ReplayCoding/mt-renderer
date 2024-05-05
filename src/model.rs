@@ -44,7 +44,7 @@ impl Model {
             .map(|path| {
                 info!("Loading texture {:?}", path);
                 let mut file = resource_manager
-                    .get_resource(&PathBuf::from(&path.replace("\\", "/")), &DTIs::rTexture)
+                    .get_resource(&PathBuf::from(&path.replace('\\', "/")), &DTIs::rTexture)
                     .ok()?;
                 let texture = TextureFile::new(&mut file).ok()?;
 

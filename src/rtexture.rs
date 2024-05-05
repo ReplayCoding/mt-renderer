@@ -1,7 +1,4 @@
-use std::{
-    io::{Read, Seek},
-    mem::size_of,
-};
+use std::io::{Read, Seek};
 
 use bytemuck::{Pod, Zeroable};
 use log::debug;
@@ -174,5 +171,6 @@ impl TextureFile {
 
 #[test]
 fn test_struct_sizes() {
+    use std::mem::size_of;
     assert_eq!(0x10, size_of::<TextureHeader>());
 }

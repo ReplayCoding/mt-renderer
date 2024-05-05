@@ -77,7 +77,7 @@ fn build_dti_map() {
             )
             .unwrap();
 
-            let formatted_entry = format!("{}", clean_name);
+            let formatted_entry = clean_name.to_string();
 
             map.entry(entry.crc, &formatted_entry);
         }
