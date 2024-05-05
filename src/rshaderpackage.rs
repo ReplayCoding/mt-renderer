@@ -4,6 +4,7 @@ use std::{
 };
 
 use log::{debug, trace};
+use zerocopy::{FromBytes, FromZeroes};
 
 use crate::{
     rshader2::{Shader2File, Shader2Object},
@@ -11,7 +12,7 @@ use crate::{
 };
 
 #[repr(C, packed)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Debug, FromBytes, FromZeroes)]
 struct ShaderPackageHeader {
     magic: u32,
     shader_version: u32,
@@ -33,9 +34,9 @@ struct ShaderPackageHeader {
     body_offset: u64,
 }
 
-// Incomplete
+// Incomplete?
 #[repr(C, packed)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Debug, FromBytes, FromZeroes)]
 struct ShaderPackageCore {
     field_0_ptr: u64,
     field_8_ptr: u64,
@@ -52,17 +53,28 @@ struct ShaderPackageCore {
 }
 
 #[repr(C, packed)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Debug, FromBytes, FromZeroes)]
 struct RawShaderPackageShader {
-    // stupid
-    pad1: [u8; 0x20],
-    pad2: [u8; 0x20],
-    pad3: [u8; 0x20],
-    pad4: [u8; 0x10],
+    padding_0: [u8; 8],
+
+    field_8: u64,
+
+    padding_10: [u8; 0x18],
+
+    field_28: u64,
+    field_30: u64,
+    field_38: u64,
+    field_40: u64,
+    field_48: u64,
+    field_50: u64,
+    field_58: u64,
+    field_60: u64,
+
+    padding_68: [u8; 8],
 }
 
 #[repr(C, packed)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Debug, FromBytes, FromZeroes)]
 struct RawShaderPackageShaderInput {
     layouts: [u32; 4], // SO_HANDLE[4]
     crc: u32,
@@ -71,11 +83,16 @@ struct RawShaderPackageShaderInput {
 }
 
 #[repr(C, packed)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Debug, FromBytes, FromZeroes)]
 struct RawShaderPackageShaderCodeInfo {
     bitfield_0x0: u32,
     crc: u32,
     pcode: u64, // void*
+}
+
+struct ShaderPackageCodeInfo {
+    _code: Vec<u8>,
+    _crc: u32,
 }
 
 #[derive(Debug)]
@@ -91,13 +108,13 @@ pub struct ShaderPackageFile {
 
 impl ShaderPackageFile {
     pub fn new<R: Read + Seek>(reader: &mut R, shader2: &Shader2File) -> anyhow::Result<Self> {
-        let header: ShaderPackageHeader = util::read_struct(reader)?;
+        let header: ShaderPackageHeader = util::read_struct_zerocopy(reader)?;
 
         // CORE read?
         let mut core_bytes = vec![0u8; (header.body_offset - 0x30) as usize];
         reader.read_exact(&mut core_bytes)?;
-        let core: &ShaderPackageCore =
-            bytemuck::from_bytes(&core_bytes[..size_of::<ShaderPackageCore>()]);
+        let core = ShaderPackageCore::ref_from(&core_bytes[..size_of::<ShaderPackageCore>()])
+            .expect("couldn't read CORE struct");
 
         // body
         let mut body_bytes = vec![0u8; header.body_length as usize];
@@ -106,61 +123,69 @@ impl ShaderPackageFile {
         debug!("header {:#08x?}", header);
         debug!("core? {:#08x?}", core);
 
-        let get_shaders = |num_shaders: u16, shaders_offs: u64, _dump_prefix: &str| {
-            (0..num_shaders).for_each(|idx| {
-                let info_offs = shaders_offs as usize
-                    + (idx as usize * size_of::<RawShaderPackageShaderCodeInfo>());
-                let info_bytes =
-                    &core_bytes[info_offs..info_offs + size_of::<RawShaderPackageShaderCodeInfo>()];
-                let info: &RawShaderPackageShaderCodeInfo = bytemuck::from_bytes(info_bytes);
+        let get_shaders = |num_shaders: u16, shaders_offs: u64| -> Vec<ShaderPackageCodeInfo> {
+            util::read_struct_array::<RawShaderPackageShaderCodeInfo>(
+                &core_bytes[shaders_offs as usize..],
+                num_shaders.into(),
+            )
+            .expect("couldn't read shader info list")
+            .map(|info| {
+                let info = info.expect("couldn't read shader info");
 
                 let code_size = (info.bitfield_0x0 >> 10) as usize;
                 let code_offs = info.pcode as usize;
 
-                let _code_bytes = &body_bytes[code_offs..code_offs + code_size];
-                // std::fs::write(format!("shaders/{dump_prefix}_{idx}"), code_bytes).unwrap();
+                let code_bytes = &body_bytes[code_offs..code_offs + code_size];
 
                 trace!(
                     "shader info size {} offs {:08x}",
                     code_size,
                     (info.pcode as u64)
                 );
-            })
-        };
 
-        let inputs = (0..header.num_inputlayouts)
-            .map(|idx| {
-                let ia_offs = core.ia_list as usize
-                    + (idx as usize * size_of::<RawShaderPackageShaderInput>());
-                let ia_bytes =
-                    &core_bytes[ia_offs..ia_offs + size_of::<RawShaderPackageShaderInput>()];
-                let ia: &RawShaderPackageShaderInput = bytemuck::from_bytes(ia_bytes);
-
-                let layouts: [_; 4] = ia
-                    .layouts
-                    .map(|layout| shader2.get_object_by_handle(layout).cloned());
-
-                ShaderPackageShaderInput {
-                    _layouts: layouts,
-                    _crc: ia.crc,
+                ShaderPackageCodeInfo {
+                    _code: code_bytes.to_vec(),
+                    _crc: info.crc,
                 }
             })
-            .collect();
+            .collect()
+        };
 
-        let _vertex_shaders = get_shaders(header.num_vertexshaders, core.vs_list, "vs");
-        let _pixel_shaders = get_shaders(header.num_pixelshaders, core.ps_list, "ps");
-        let _geometry_shaders = get_shaders(header.num_geometryshaders, core.gs_list, "gs");
-        let _hull_shaders = get_shaders(header.num_hullshaders, core.hs_list, "hs");
-        let _domain_shaders = get_shaders(header.num_domainshaders, core.ds_list, "ds");
-        let _compute_shaders = get_shaders(header.num_computeshaders, core.cs_list, "ds");
+        let inputs = util::read_struct_array::<RawShaderPackageShaderInput>(
+            &core_bytes[core.ia_list as usize..],
+            header.num_inputlayouts.into(),
+        )
+        .expect("couldn't read ia list")
+        .map(|ia| {
+            let ia = ia.expect("couldn't read shader input");
 
-        for shader_idx in 0..header.num_shaders {
-            let shader_bytes_offs = size_of::<ShaderPackageCore>()
-                + (shader_idx as usize * size_of::<RawShaderPackageShader>()); // VLA at end of CORE struct
-            let shader_bytes = &core_bytes
-                [shader_bytes_offs..shader_bytes_offs + size_of::<RawShaderPackageShader>()];
-            let shader_info: &RawShaderPackageShader = bytemuck::from_bytes(shader_bytes);
-            println!("{:#?}", shader_info);
+            let layouts: [_; 4] = ia
+                .layouts
+                .map(|layout| shader2.get_object_by_handle(layout).cloned());
+
+            ShaderPackageShaderInput {
+                _layouts: layouts,
+                _crc: ia.crc,
+            }
+        })
+        .collect();
+
+        let _vertex_shaders = get_shaders(header.num_vertexshaders, core.vs_list);
+        let _pixel_shaders = get_shaders(header.num_pixelshaders, core.ps_list);
+        let _geometry_shaders = get_shaders(header.num_geometryshaders, core.gs_list);
+        let _hull_shaders = get_shaders(header.num_hullshaders, core.hs_list);
+        let _domain_shaders = get_shaders(header.num_domainshaders, core.ds_list);
+        let _compute_shaders = get_shaders(header.num_computeshaders, core.cs_list);
+
+        // VLA at end of CORE struct, which is why we add sizeof(CORE)
+        for shader_info in util::read_struct_array::<RawShaderPackageShader>(
+            &core_bytes[size_of::<ShaderPackageCore>()..],
+            header.num_shaders.into(),
+        )
+        .expect("couldn't read shader info list")
+        {
+            let _shader_info = shader_info.expect("couldn't read shader info");
+            debug!("{:#?}", shader_info);
         }
 
         Ok(Self { _inputs: inputs })
