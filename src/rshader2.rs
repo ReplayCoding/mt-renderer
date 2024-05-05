@@ -7,9 +7,12 @@ use std::{
 
 use anyhow::anyhow;
 use log::{debug, warn};
+use zerocopy::{FromBytes, FromZeroes};
+
+use crate::util;
 
 #[repr(C, packed)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, Debug)]
+#[derive(FromBytes, FromZeroes, Debug)]
 struct Shader2Header {
     magic: u32,
     major_version: u16,
@@ -25,7 +28,7 @@ struct Shader2Header {
 }
 
 #[repr(C, packed)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, Debug)]
+#[derive(FromBytes, FromZeroes, Debug)]
 struct RawShader2Object {
     name_offs: u64,  // char*
     sname_offs: u64, // char*
@@ -57,7 +60,7 @@ impl RawShader2Object {
 }
 
 #[repr(C, packed)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, Debug)]
+#[derive(FromBytes, FromZeroes, Debug)]
 struct RawShader2InputElement {
     name: u64,
     bitfield: u32,
@@ -173,7 +176,7 @@ impl Shader2Object {
 }
 
 #[repr(C, packed)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, Debug)]
+#[derive(FromBytes, FromZeroes, Debug)]
 struct RawShader2InputLayout {
     bitfield_0: u32,
     padding1: u32,
@@ -182,7 +185,7 @@ struct RawShader2InputLayout {
 }
 
 #[repr(C, packed)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, Debug)]
+#[derive(FromBytes, FromZeroes, Debug)]
 struct RawShader2Struct {
     bitfield_0: u32,
     padding1: u32,
@@ -190,7 +193,7 @@ struct RawShader2Struct {
 }
 
 #[repr(C, packed)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, Debug)]
+#[derive(FromBytes, FromZeroes, Debug)]
 struct RawShader2CBuffer {
     bitfield_0: u32,
     crc: u32,
@@ -199,7 +202,7 @@ struct RawShader2CBuffer {
 }
 
 #[repr(C, packed)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, Debug)]
+#[derive(FromBytes, FromZeroes, Debug)]
 struct RawShader2Variable {
     name: u64, // MT_CSTR
     bitfield_0x8: u32,
@@ -246,56 +249,57 @@ fn parse_variables(
     file_data: &[u8],
     stringtable_bytes: &[u8],
 ) -> Vec<Shader2Variable> {
-    (0..variables_num)
-        .map(|member_idx| {
-            let variable_offset =
-                (member_idx as usize * size_of::<RawShader2Variable>()) + variables_offset as usize;
-            let variable_bytes =
-                &file_data[variable_offset..variable_offset + size_of::<RawShader2Variable>()];
-            let variable: &RawShader2Variable = bytemuck::from_bytes(variable_bytes);
+    util::read_struct_array::<RawShader2Variable>(
+        &file_data[variables_offset as usize..],
+        variables_num as usize,
+    )
+    .expect("couldn't read variables")
+    .enumerate()
+    .map(|(member_idx, variable)| {
+        let variable = variable.expect("couldn't read variable");
 
-            let name = CStr::from_bytes_until_nul(&stringtable_bytes[variable.name as usize..])
-                .expect("Unable to decode variable name for struct");
-            let sname = CStr::from_bytes_until_nul(&stringtable_bytes[variable.sname as usize..])
-                .expect("Unable to decode variable name for struct");
+        let name = CStr::from_bytes_until_nul(&stringtable_bytes[variable.name as usize..])
+            .expect("Unable to decode variable name for struct");
+        let sname = CStr::from_bytes_until_nul(&stringtable_bytes[variable.sname as usize..])
+            .expect("Unable to decode variable name for struct");
 
-            assert_eq!(variable.padding1 as u32, 0);
+        assert_eq!({ variable.padding1 }, 0);
 
-            debug!("member #{} name {:?}", member_idx, name);
+        debug!("member #{} name {:?}", member_idx, name);
 
-            // TODO: handle attr
-            let _attr = variable.bitfield_0x8 & 0x7ffff;
-            let ctype = (variable.bitfield_0x8 >> 19) & 0x7;
-            let size = (variable.bitfield_0x8 >> 22) & 0x3ff;
+        // TODO: handle attr
+        let _attr = variable.bitfield_0x8 & 0x7ffff;
+        let ctype = (variable.bitfield_0x8 >> 19) & 0x7;
+        let size = (variable.bitfield_0x8 >> 22) & 0x3ff;
 
-            let sindex = (variable.bitfield_0x18) & 0xff;
-            let offset = (variable.bitfield_0x18 >> 8) & 0x3ff;
-            // TODO: what is this for?
-            let _svalue = (variable.bitfield_0x18 >> 18) & 0x3f;
-            let annotation_num = (variable.bitfield_0x18 >> 24) & 0xff;
+        let sindex = (variable.bitfield_0x18) & 0xff;
+        let offset = (variable.bitfield_0x18 >> 8) & 0x3ff;
+        // TODO: what is this for?
+        let _svalue = (variable.bitfield_0x18 >> 18) & 0x3f;
+        let annotation_num = (variable.bitfield_0x18 >> 24) & 0xff;
 
-            let annotations = if variable.annotations != 0 {
-                Some(parse_variables(
-                    variable.annotations,
-                    annotation_num,
-                    file_data,
-                    stringtable_bytes,
-                ))
-            } else {
-                None
-            };
+        let annotations = if variable.annotations != 0 {
+            Some(parse_variables(
+                variable.annotations,
+                annotation_num,
+                file_data,
+                stringtable_bytes,
+            ))
+        } else {
+            None
+        };
 
-            Shader2Variable {
-                _name: name.to_string_lossy().to_string(),
-                _sname: sname.to_string_lossy().to_string(),
-                _ctype: ClassType::from_repr(ctype).expect("invalid ctype"),
-                _size: size,
-                _sindex: sindex,
-                _offset: offset,
-                _annotations: annotations,
-            }
-        })
-        .collect()
+        Shader2Variable {
+            _name: name.to_string_lossy().to_string(),
+            _sname: sname.to_string_lossy().to_string(),
+            _ctype: ClassType::from_repr(ctype).expect("invalid ctype"),
+            _size: size,
+            _sindex: sindex,
+            _offset: offset,
+            _annotations: annotations,
+        }
+    })
+    .collect()
 }
 
 impl Shader2File {
@@ -303,7 +307,8 @@ impl Shader2File {
         let mut file_data: Vec<u8> = vec![];
         reader.read_to_end(&mut file_data)?;
 
-        let header: &Shader2Header = bytemuck::from_bytes(&file_data[..size_of::<Shader2Header>()]);
+        let header = Shader2Header::ref_from(&file_data[..size_of::<Shader2Header>()])
+            .expect("couldn't read header");
         debug!("shader2 header: {:#?}", header);
 
         if header.magic != 0x58464d {
@@ -313,25 +318,28 @@ impl Shader2File {
 
         let stringtable_bytes = &file_data[header.stringtable_offs as usize..];
 
-        let mut objects = vec![];
+        let objects: Vec<Shader2Object> = util::read_struct_array::<u64>(
+            &file_data[size_of::<Shader2Header>()..],
+            header.num_objects as usize - 1,
+        )
+        .expect("couldn't read object pointers")
+        .map(|object_ptr| {
+            let object_ptr = object_ptr.expect("couldn't read object ptr");
 
-        let object_ptrs_bytes = &file_data[size_of::<Shader2Header>()
-            ..size_of::<Shader2Header>() + ((header.num_objects as usize - 1) * 8)];
-        let object_ptrs: &[u64] = bytemuck::cast_slice(object_ptrs_bytes);
-        for object_ptr in object_ptrs {
             let object_bytes = &file_data[*object_ptr as usize..];
-
-            let object: &RawShader2Object =
-                bytemuck::from_bytes(&object_bytes[..size_of::<RawShader2Object>()]);
+            let object = RawShader2Object::ref_from(&object_bytes[..size_of::<RawShader2Object>()])
+                .expect("couldn't read object");
 
             let name_offs = object.name_offs; // :(
             assert_ne!(name_offs, 0);
-            let name = CStr::from_bytes_until_nul(&stringtable_bytes[name_offs as usize..])?;
+            let name = CStr::from_bytes_until_nul(&stringtable_bytes[name_offs as usize..])
+                .expect("couldn't read object name");
 
             let sname = if object.sname_offs != 0 {
-                Some(CStr::from_bytes_until_nul(
-                    &stringtable_bytes[object.sname_offs as usize..],
-                )?)
+                Some(
+                    CStr::from_bytes_until_nul(&stringtable_bytes[object.sname_offs as usize..])
+                        .expect("couldn't read object sname"),
+                )
             } else {
                 None
             };
@@ -354,8 +362,10 @@ impl Shader2File {
             let obj_specific_bytes = &object_bytes[size_of::<RawShader2Object>()..];
             let obj_specific = match obj_type {
                 ObjectType::OT_CBUFFER => {
-                    let raw_cbuffer: &RawShader2CBuffer =
-                        bytemuck::from_bytes(&obj_specific_bytes[..size_of::<RawShader2CBuffer>()]);
+                    let raw_cbuffer = RawShader2CBuffer::ref_from(
+                        &obj_specific_bytes[..size_of::<RawShader2CBuffer>()],
+                    )
+                    .expect("couldn't read cbuffer");
 
                     let num_variables = (raw_cbuffer.bitfield_0 >> 16) & 0xffff;
 
@@ -370,8 +380,10 @@ impl Shader2File {
                     })
                 }
                 ObjectType::OT_STRUCT => {
-                    let raw_struct: &RawShader2Struct =
-                        bytemuck::from_bytes(&obj_specific_bytes[..size_of::<RawShader2Struct>()]);
+                    let raw_struct = RawShader2Struct::ref_from(
+                        &obj_specific_bytes[..size_of::<RawShader2Struct>()],
+                    )
+                    .expect("couldn't read struct");
 
                     let num_members = (raw_struct.bitfield_0 >> 0xa) & 0xfff;
 
@@ -389,25 +401,26 @@ impl Shader2File {
                 }
 
                 ObjectType::OT_INPUTLAYOUT => {
-                    let raw_inputlayout: &RawShader2InputLayout = bytemuck::from_bytes(
+                    let raw_inputlayout = RawShader2InputLayout::ref_from(
                         &obj_specific_bytes[..size_of::<RawShader2InputLayout>()],
-                    );
+                    )
+                    .expect("couldn't read input layout");
 
                     let element_count = raw_inputlayout.bitfield_0 & 0xffff;
                     let stride = (raw_inputlayout.bitfield_0 >> 16) & 0xffff;
 
-                    let mut elements = vec![];
-                    for i in 0..element_count {
-                        let arr_offs = size_of::<RawShader2InputLayout>()
-                            + (size_of::<RawShader2InputElement>() * i as usize);
-                        let raw_element: &RawShader2InputElement = bytemuck::from_bytes(
-                            &obj_specific_bytes
-                                [arr_offs..arr_offs + size_of::<RawShader2InputElement>()],
-                        );
+                    let elements = util::read_struct_array::<RawShader2InputElement>(
+                        &obj_specific_bytes[size_of::<RawShader2InputLayout>()..],
+                        element_count as usize,
+                    )
+                    .expect("couldn't read input elements")
+                    .map(|raw_element| {
+                        let raw_element = raw_element.expect("couldn't read input element");
 
                         let element_name = CStr::from_bytes_until_nul(
                             &stringtable_bytes[raw_element.name as usize..],
-                        )?;
+                        )
+                        .expect("couldn't decode input element name");
 
                         // 8.	| sindex (bitstart=0,nbits=6)
                         // 8.	| format (bitstart=6,nbits=5)
@@ -415,7 +428,7 @@ impl Shader2File {
                         // 8.	| start (bitstart=18,nbits=4)
                         // 8.	| offset (bitstart=22,nbits=9)
                         // 8.	| instance (bitstart=31,nbits=1)
-                        let element_parsed = Shader2InputElement {
+                        Shader2InputElement {
                             name: element_name.to_string_lossy().to_string(),
                             sindex: raw_element.bitfield & 0x3f,
                             format: InputElementFormat::from_repr(
@@ -426,10 +439,10 @@ impl Shader2File {
                             start: (raw_element.bitfield >> 18) & 0x0f,
                             offset: (raw_element.bitfield >> 22) & 0x1ff,
                             instance: (raw_element.bitfield >> 31) & 0x01,
-                        };
+                        }
+                    })
+                    .collect();
 
-                        elements.push(element_parsed);
-                    }
                     Shader2ObjectTypedInfo::InputLayout(Shader2ObjectInputLayoutInfo {
                         _stride: stride,
                         elements,
@@ -438,7 +451,7 @@ impl Shader2File {
                 _ => Shader2ObjectTypedInfo::None,
             };
 
-            objects.push(Shader2Object {
+            Shader2Object {
                 name: name.to_string_lossy().to_string(),
                 sname: sname.map(|x| x.to_string_lossy().to_string()),
                 obj_type,
@@ -447,8 +460,9 @@ impl Shader2File {
                 obj_specific,
                 sindex: object.sindex(),
                 index: object.index(),
-            });
-        }
+            }
+        })
+        .collect();
 
         let mut name_hash_to_object: HashMap<u32, usize> = HashMap::new();
         for (i, object) in objects.iter().enumerate() {

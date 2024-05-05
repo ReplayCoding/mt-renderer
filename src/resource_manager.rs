@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fs::File,
-    io::{Cursor, Read, Seek},
+    io::{BufReader, Cursor, Read, Seek},
     path::{Path, PathBuf},
 };
 
@@ -10,7 +10,7 @@ use anyhow::anyhow;
 use log::trace;
 
 enum ResourceInner {
-    FileBacked(File),
+    FileBacked(BufReader<File>),
     ArchiveBacked(Cursor<Vec<u8>>),
 }
 
@@ -53,8 +53,7 @@ impl ResourceManager {
         }
 
         let file = std::fs::File::open(
-            self
-                .base_path
+            self.base_path
                 .join(path.with_extension(DTIs::rArchive.file_ext().unwrap())),
         )?;
 
@@ -95,10 +94,10 @@ impl ResourceManager {
         let file = std::fs::File::open(fs_path);
 
         if let Ok(file) = file {
-            Ok(Resource(ResourceInner::FileBacked(file)))
+            Ok(Resource(ResourceInner::FileBacked(BufReader::new(file))))
         } else {
-            for (_archive_path, archive) in &self.loaded_archives {
-                if let Some(resource_data) = archive.get_resource(path, dti) {
+            for archive in self.loaded_archives.values() {
+                if let Some(resource_data) = archive.get_resource(path, dti)? {
                     return Ok(Resource(ResourceInner::ArchiveBacked(Cursor::new(
                         resource_data,
                     ))));

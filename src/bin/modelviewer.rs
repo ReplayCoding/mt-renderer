@@ -10,6 +10,7 @@ use mt_renderer::{
     rshader2::Shader2File,
     DTIs,
 };
+use zerocopy::AsBytes;
 
 struct ModelViewerApp {
     model: Model,
@@ -140,11 +141,9 @@ impl RendererApp for ModelViewerApp {
 
         let transform_mat =
             compute_mat(manager.config().width as f32 / manager.config().height as f32);
-        manager.queue().write_buffer(
-            &self.transform_buf,
-            0,
-            bytemuck::cast_slice(transform_mat.as_ref()),
-        );
+        manager
+            .queue()
+            .write_buffer(&self.transform_buf, 0, transform_mat.as_ref().as_bytes());
 
         self.model.render(
             frame_view,

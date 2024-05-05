@@ -2,6 +2,7 @@ use std::{collections::HashMap, path::PathBuf};
 
 use log::{info, trace};
 use wgpu::util::DeviceExt;
+use zerocopy::AsBytes;
 
 use crate::{
     resource_manager::ResourceManager,
@@ -76,7 +77,7 @@ impl Model {
 
         let indexbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("rModel index buffer"),
-            contents: bytemuck::cast_slice(model_file.index_buf()),
+            contents: model_file.index_buf().as_bytes(),
             usage: wgpu::BufferUsages::INDEX,
         });
 
@@ -126,13 +127,14 @@ impl Model {
                     true
                 }
             })
-            .copied()
+            .cloned()
             .collect();
 
-        for (_idx, primitive) in primitives.iter().enumerate() {
+        for primitive in primitives.iter() {
+            let debug_id: u32 = (primitive.inputlayout() & 0xfffff000) >> 0xc;
             let debug_id_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("rModel debug id buffer"),
-                contents: bytemuck::cast_slice(&[(primitive.inputlayout() & 0xfffff000) >> 0xc]),
+                contents: [debug_id].as_bytes(),
                 usage: wgpu::BufferUsages::UNIFORM,
             });
 

@@ -1,11 +1,12 @@
 use std::io::{Read, Seek};
 
 use log::debug;
+use zerocopy::{FromBytes, FromZeroes};
 
 use crate::{util, DTI};
 
 #[repr(C, packed)]
-#[derive(bytemuck::Zeroable, bytemuck::Pod, Clone, Copy, Debug)]
+#[derive(FromBytes, FromZeroes, Debug)]
 struct Header {
     magic: u32,
     major_version: u16,

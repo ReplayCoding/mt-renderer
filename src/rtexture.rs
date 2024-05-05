@@ -1,7 +1,7 @@
 use std::io::{Read, Seek};
 
-use bytemuck::{Pod, Zeroable};
 use log::debug;
+use zerocopy::{FromBytes, FromZeroes};
 
 use crate::util;
 
@@ -58,7 +58,7 @@ enum TextureType {
 // 12.	| use_vtf (bitstart=31,nbits=1)
 // 	+---
 #[repr(C, packed)]
-#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+#[derive(Debug, FromBytes, FromZeroes)]
 struct TextureHeader {
     magic: u32,
     bitfield_4: u32,
@@ -127,12 +127,19 @@ impl TextureFile {
         assert_eq!(header.magic.to_ne_bytes(), "TEX\0".as_bytes());
         assert_eq!(header.image_type(), TextureType::TT_2D);
 
-        // TODO: read SH data
+        // TODO: read SH data (cubemap)
 
-        let mut unk_offsets_bytes =
-            vec![0u8; ((header.array_count() * header.level_count()) << 3) as usize];
+        // TODO: is this what it is?
+        let num_images = header.array_count() * header.level_count();
+        let mut unk_offsets_bytes = vec![0u8; (num_images << 3) as usize];
         reader.read_exact(&mut unk_offsets_bytes)?;
-        let unk_offsets: &[u64] = bytemuck::cast_slice(&unk_offsets_bytes);
+
+        // this is stupid, it shouldn't be a Vec!
+        let unk_offsets: Vec<u64> =
+            util::read_struct_array::<u64>(&unk_offsets_bytes, num_images as usize)?
+                .map(|o| *o.unwrap())
+                .collect();
+
         debug!("texture offsets: {:08x?}", unk_offsets);
 
         // TEMP HACK

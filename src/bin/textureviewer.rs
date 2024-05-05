@@ -5,6 +5,7 @@ use mt_renderer::{
 };
 use std::{borrow::Cow, mem::size_of};
 use wgpu::util::DeviceExt;
+use zerocopy::AsBytes;
 
 struct TextureViewerApp {
     texture: Texture,
@@ -36,7 +37,7 @@ impl RendererApp for TextureViewerApp {
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("vertex buffer"),
-            contents: bytemuck::cast_slice(&vertex_buf_data),
+            contents: vertex_buf_data.as_bytes(),
             usage: wgpu::BufferUsages::VERTEX,
         });
 

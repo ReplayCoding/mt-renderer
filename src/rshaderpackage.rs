@@ -3,6 +3,7 @@ use std::{
     mem::size_of,
 };
 
+use anyhow::anyhow;
 use log::{debug, trace};
 use zerocopy::{FromBytes, FromZeroes};
 
@@ -108,7 +109,7 @@ pub struct ShaderPackageFile {
 
 impl ShaderPackageFile {
     pub fn new<R: Read + Seek>(reader: &mut R, shader2: &Shader2File) -> anyhow::Result<Self> {
-        let header: ShaderPackageHeader = util::read_struct_zerocopy(reader)?;
+        let header: ShaderPackageHeader = util::read_struct(reader)?;
 
         // CORE read?
         let mut core_bytes = vec![0u8; (header.body_offset - 0x30) as usize];
@@ -137,11 +138,7 @@ impl ShaderPackageFile {
 
                 let code_bytes = &body_bytes[code_offs..code_offs + code_size];
 
-                trace!(
-                    "shader info size {} offs {:08x}",
-                    code_size,
-                    (info.pcode as u64)
-                );
+                trace!("shader info size {} offs {:08x}", code_size, { info.pcode });
 
                 ShaderPackageCodeInfo {
                     _code: code_bytes.to_vec(),
@@ -181,10 +178,8 @@ impl ShaderPackageFile {
         for shader_info in util::read_struct_array::<RawShaderPackageShader>(
             &core_bytes[size_of::<ShaderPackageCore>()..],
             header.num_shaders.into(),
-        )
-        .expect("couldn't read shader info list")
-        {
-            let _shader_info = shader_info.expect("couldn't read shader info");
+        )? {
+            let _shader_info = shader_info.ok_or_else(|| anyhow!("couldn't read shader info"))?;
             debug!("{:#?}", shader_info);
         }
 

@@ -7,11 +7,12 @@ use std::{
 
 use flate2::read::ZlibDecoder;
 use log::{debug, trace};
+use zerocopy::{FromBytes, FromZeroes};
 
 use crate::{util, DTI};
 
 #[repr(C, packed)]
-#[derive(bytemuck::Pod, bytemuck::Zeroable, Debug, Clone, Copy)]
+#[derive(Debug, FromBytes, FromZeroes)]
 struct ArchiveHeader {
     magic: u32,
     version: u16,
@@ -19,7 +20,7 @@ struct ArchiveHeader {
 }
 
 #[repr(C, packed)]
-#[derive(bytemuck::Pod, bytemuck::Zeroable, Debug, Clone, Copy)]
+#[derive(Debug, FromBytes, FromZeroes)]
 struct RawResourceInfo {
     path: [u8; 128],
     dti_type: u32,
@@ -115,35 +116,39 @@ impl<Backing: Read + Seek> ArchiveFile<Backing> {
         &self.resources
     }
 
-    pub fn get_resource_by_info(&self, info: &ResourceInfo) -> Option<Vec<u8>> {
+    pub fn get_resource_by_info(&self, info: &ResourceInfo) -> anyhow::Result<Option<Vec<u8>>> {
         self.get_resource(&info.path, info.dti)
     }
 
-    pub fn get_resource(&self, path: &Path, dti: &DTI) -> Option<Vec<u8>> {
+    pub fn get_resource(&self, path: &Path, dti: &DTI) -> anyhow::Result<Option<Vec<u8>>> {
         // hashmaps make everything go fast...
         let resource = self
             .resources
             .iter()
-            .find(|resource| (resource.path == path) && (resource.dti == dti))?;
+            .find(|resource| (resource.path == path) && (resource.dti == dti));
+
+        let resource = if let Some(resource) = resource {
+            resource
+        } else {
+            return Ok(None);
+        };
 
         let mut reader = self.reader.lock().unwrap();
 
-        reader
-            .seek(std::io::SeekFrom::Start(resource.offset.into()))
-            .unwrap();
+        reader.seek(std::io::SeekFrom::Start(resource.offset.into()))?;
 
         let mut content_compressed = vec![0u8; resource.size_compressed as usize];
-        reader.read_exact(&mut content_compressed).unwrap();
+        reader.read_exact(&mut content_compressed)?;
 
         let mut cursor = Cursor::new(&content_compressed);
         let mut decoder = ZlibDecoder::new(&mut cursor);
 
         let mut content_decompressed: Vec<u8> = vec![];
-        let num_decompressed_bytes = decoder.read_to_end(&mut content_decompressed).unwrap();
+        let num_decompressed_bytes = decoder.read_to_end(&mut content_decompressed)?;
 
         assert_eq!(num_decompressed_bytes, resource.size_uncompressed as usize);
 
-        Some(content_decompressed)
+        Ok(Some(content_decompressed))
     }
 }
 

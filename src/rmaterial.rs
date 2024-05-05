@@ -5,11 +5,12 @@ use std::{
 };
 
 use log::{debug, warn};
+use zerocopy::{FromBytes, FromZeroes};
 
 use crate::{rshader2::Shader2File, util, DTI};
 
 #[repr(C, packed)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(FromBytes, FromZeroes, Debug)]
 struct MaterialHeader {
     magic: u32,
     version: u32,
@@ -23,7 +24,7 @@ struct MaterialHeader {
 }
 
 #[repr(C, packed)]
-#[derive(bytemuck::Pod, bytemuck::Zeroable, Debug, Copy, Clone)]
+#[derive(FromBytes, FromZeroes, Debug)]
 struct RawTextureInfo {
     dti_hash: u32,
     _padding: u32,
@@ -64,7 +65,7 @@ enum MaterialStateType {
 }
 
 #[repr(C, packed)]
-#[derive(bytemuck::Pod, bytemuck::Zeroable, Debug, Copy, Clone)]
+#[derive(FromBytes, FromZeroes, Debug)]
 struct RawMaterialState {
     bitfield_0x0: u32,
     _padding: u32,
@@ -93,7 +94,7 @@ impl RawMaterialState {
 }
 
 #[repr(C, packed)]
-#[derive(bytemuck::Pod, bytemuck::Zeroable, Debug, Copy, Clone)]
+#[derive(FromBytes, FromZeroes, Debug)]
 struct RawMaterialInfo {
     dti_hash: u32,
     _padding: u32,

@@ -19,7 +19,7 @@ fn main() -> anyhow::Result<()> {
             resource.dti().name()
         );
 
-        let data = archive.get_resource_by_info(resource).unwrap();
+        let data = archive.get_resource_by_info(resource)?.unwrap();
         let out_path = out_dir_name.join(
             resource
                 .path()

@@ -1,15 +1,16 @@
-use bytemuck::{Pod, Zeroable};
+use anyhow::anyhow;
 use log::{debug, trace};
 use std::{
     ffi::CStr,
     io::{Read, Seek},
     mem::size_of,
 };
+use zerocopy::{AsBytes, FromBytes, FromZeroes};
 
 use crate::util;
 
 #[repr(C, packed)]
-#[derive(Clone, Copy, Pod, Zeroable, Debug)]
+#[derive(FromBytes, FromZeroes, Debug, Copy, Clone)]
 struct MtVector3 {
     x: f32,
     y: f32,
@@ -18,7 +19,7 @@ struct MtVector3 {
 }
 
 #[repr(C, packed)]
-#[derive(Clone, Copy, Pod, Zeroable, Debug)]
+#[derive(FromBytes, FromZeroes, Debug, Copy, Clone)]
 struct MtVector4 {
     x: f32,
     y: f32,
@@ -27,14 +28,15 @@ struct MtVector4 {
 }
 
 #[repr(C, packed)]
-#[derive(Clone, Copy, Pod, Zeroable, Debug)]
+#[derive(FromBytes, FromZeroes, Debug, Copy, Clone)]
 struct MtAABB {
     minpos: MtVector3,
     maxpos: MtVector3,
 }
 
 #[repr(C, packed)]
-#[derive(Clone, Copy, Pod, Zeroable, Debug)]
+#[derive(FromBytes, FromZeroes, Debug, Copy, Clone)]
+
 struct MtFloat3A {
     x: f32,
     y: f32,
@@ -42,27 +44,27 @@ struct MtFloat3A {
 }
 
 #[repr(C, packed)]
-#[derive(Clone, Copy, Pod, Zeroable, Debug)]
+#[derive(FromBytes, FromZeroes, Debug, Copy, Clone)]
 struct MtSphere {
     pos: MtFloat3A,
     r: f32,
 }
 
 #[repr(C, packed)]
-#[derive(Clone, Copy, Pod, Zeroable, Debug)]
+#[derive(FromBytes, FromZeroes, Debug, Copy, Clone)]
 struct MtMatrix {
     m: [MtVector4; 4],
 }
 
 #[repr(C, packed)]
-#[derive(Clone, Copy, Pod, Zeroable, Debug)]
+#[derive(FromBytes, FromZeroes, Debug, Copy, Clone)]
 struct MtOBB {
     coord: MtMatrix,
     extent: MtVector3,
 }
 
 #[repr(C, packed)]
-#[derive(Clone, Copy, Pod, Zeroable, Debug)]
+#[derive(FromBytes, FromZeroes, Debug, Copy, Clone)]
 struct ModelInfo {
     middist: i32,
     lowdist: i32,
@@ -72,7 +74,7 @@ struct ModelInfo {
 }
 
 #[repr(C, packed)]
-#[derive(Clone, Copy, Pod, Zeroable, Debug)]
+#[derive(FromBytes, FromZeroes, Debug, Copy, Clone)]
 struct ModelHdr {
     magic: u32,
     version: u16,
@@ -113,7 +115,7 @@ impl PrimitiveTopology {
 }
 
 #[repr(C, packed)]
-#[derive(Clone, Copy, Pod, Zeroable, Debug)]
+#[derive(FromBytes, FromZeroes, Debug, Clone)]
 pub struct PrimitiveInfo {
     // u32 draw_mode:16;
     // u32 vertex_num:16;
@@ -207,7 +209,7 @@ impl PrimitiveInfo {
 }
 
 #[repr(C, packed)]
-#[derive(Clone, Copy, Pod, Zeroable, Debug)]
+#[derive(FromBytes, FromZeroes, Debug, Copy, Clone)]
 pub struct PartsInfo {
     no: u32,
     reserved: [u32; 3],
@@ -215,7 +217,7 @@ pub struct PartsInfo {
 }
 
 #[repr(C, packed)]
-#[derive(Clone, Copy, Pod, Zeroable, Debug)]
+#[derive(FromBytes, FromZeroes, Debug, Copy, Clone)]
 struct BoundaryInfo {
     joint: u32,
     reserved: [u32; 3],
@@ -263,14 +265,14 @@ impl ModelFile {
 
         debug!("materials: {:?}", material_names);
 
-        let mut primitive_arr_bytes = vec![0u8; header.primitive_num as usize * 0x38];
+        let mut primitive_arr_bytes =
+            vec![0u8; header.primitive_num as usize * size_of::<PrimitiveInfo>()];
         reader.seek(std::io::SeekFrom::Start(header.primitive_info as u64))?;
         reader.read_exact(&mut primitive_arr_bytes)?;
-        let primitives: Vec<PrimitiveInfo> = (0..header.primitive_num as usize)
-            .map(|primitive_idx| {
-                let primitive_bytes =
-                    &primitive_arr_bytes[primitive_idx * 0x38..(primitive_idx + 1) * 0x38];
-                let primitive: &PrimitiveInfo = bytemuck::try_from_bytes(primitive_bytes).unwrap();
+        let primitives: Vec<PrimitiveInfo> = util::read_struct_array::<PrimitiveInfo>(&primitive_arr_bytes, header.primitive_num.into())?
+            .enumerate()
+            .map(|(primitive_idx, primitive)| {
+                let primitive = primitive.ok_or_else(|| anyhow!("couldn't read primitive {}", primitive_idx))?;
 
                 debug!(
                     "primitive {}: stride {} (mat {}: {}) layout {:08x} part {} material {} weight_num {} boundary {}",
@@ -285,36 +287,37 @@ impl ModelFile {
                     primitive.boundary_num(),
                 );
 
-                *primitive
+                Ok(primitive.clone())
             })
-            .collect();
+            .collect::<anyhow::Result<_>>()?;
 
-        let mut boundary_info_bytes = vec![0u8; boundary_num as usize * 0x90];
-        reader.read_exact(&mut boundary_info_bytes)?; // no seek, wtf
-        let boundary_infos: Vec<BoundaryInfo> = (0..boundary_num as usize)
-            .map(|boundary_idx| {
-                let info_bytes =
-                    &boundary_info_bytes[boundary_idx * 0x90..(boundary_idx + 1) * 0x90];
-                let info: &BoundaryInfo = bytemuck::try_from_bytes(info_bytes).unwrap();
+        let mut boundary_info_bytes = vec![0u8; boundary_num as usize * size_of::<BoundaryInfo>()];
+        reader.read_exact(&mut boundary_info_bytes)?;
+        let boundary_infos: Vec<BoundaryInfo> =
+            util::read_struct_array::<BoundaryInfo>(&boundary_info_bytes, boundary_num as usize)?
+                .enumerate()
+                .map(|(boundary_idx, info)| {
+                    let info =
+                        info.ok_or_else(|| anyhow!("couldn't read boundary {}", boundary_idx))?;
 
-                trace!("boundary {}: {:?}", boundary_idx, info);
-                *info
-            })
-            .collect();
+                    trace!("boundary {}: {:?}", boundary_idx, info);
+                    Ok(*info)
+                })
+                .collect::<anyhow::Result<_>>()?;
 
         let mut parts_arr_bytes = vec![0u8; header.parts_num as usize * size_of::<PartsInfo>()];
         reader.seek(std::io::SeekFrom::Start(header.parts_info as u64))?;
         reader.read_exact(&mut parts_arr_bytes)?;
-        let parts: Vec<PartsInfo> = (0..header.parts_num as usize)
-            .map(|idx| {
-                let bytes = &parts_arr_bytes
-                    [idx * size_of::<PartsInfo>()..(idx + 1) * size_of::<PartsInfo>()];
-                let part: &PartsInfo = bytemuck::try_from_bytes(bytes).unwrap();
-                debug!("part: {:?}", part);
+        let parts: Vec<PartsInfo> =
+            util::read_struct_array(&parts_arr_bytes, header.parts_num as usize)?
+                .enumerate()
+                .map(|(idx, part)| {
+                    let part = part.ok_or_else(|| anyhow!("couldn't read part {}", idx))?;
+                    debug!("part: {:?}", part);
 
-                *part
-            })
-            .collect();
+                    Ok(*part)
+                })
+                .collect::<anyhow::Result<_>>()?;
 
         let mut vertex_buf = vec![0u8; header.vertexbuf_size as usize];
         reader.seek(std::io::SeekFrom::Start(header.vertex_data))?;
@@ -322,7 +325,7 @@ impl ModelFile {
 
         let mut index_buf = vec![0u16; header.index_num as usize];
         reader.seek(std::io::SeekFrom::Start(header.index_data))?;
-        reader.read_exact(bytemuck::cast_slice_mut(&mut index_buf))?;
+        reader.read_exact(index_buf.as_mut_slice().as_bytes_mut())?;
 
         Ok(Self {
             material_names,
