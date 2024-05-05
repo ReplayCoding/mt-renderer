@@ -20,7 +20,7 @@ fn main() -> anyhow::Result<()> {
     let mut file = resource_manager.get_resource_fancy(&args[2], &DTIs::rShaderPackage)?;
     let shader_package = ShaderPackageFile::new(&mut file, &shader2)?;
 
-    println!("{:#?}", shader_package);
+    // println!("{:#?}", shader_package);
 
     Ok(())
 }

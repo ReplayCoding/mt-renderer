@@ -21,7 +21,7 @@
               "rustc"
               "rustfmt"
             ])
-            pkgs.rust-analyzer-nightly
+#             pkgs.rust-analyzer-nightly
           ];
 
           shellHook = ''

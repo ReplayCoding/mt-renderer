@@ -3,7 +3,7 @@ use std::io::Read;
 pub fn read_struct<S, R>(reader: &mut R) -> std::io::Result<S>
 where
     R: Read,
-    S: bytemuck::Pod,
+    S: Sized + bytemuck::Pod,
     [u8; std::mem::size_of::<S>()]:, // wtf
 {
     let mut bytes = [0u8; std::mem::size_of::<S>()];

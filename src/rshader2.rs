@@ -65,7 +65,7 @@ struct RawShader2InputElement {
 }
 
 #[repr(u32)]
-#[derive(strum::FromRepr, Debug, PartialEq, Eq)]
+#[derive(strum::FromRepr, Debug, PartialEq, Eq, Copy, Clone)]
 #[allow(non_camel_case_types, unused)]
 enum InputElementFormat {
     IEF_UNDEFINED = 0,
@@ -86,7 +86,7 @@ enum InputElementFormat {
     IEF_MAX = 15,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(unused)] // TODO
 struct Shader2InputElement {
     name: String,
@@ -98,24 +98,24 @@ struct Shader2InputElement {
     instance: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Shader2ObjectInputLayoutInfo {
     stride: u32,
     elements: Vec<Shader2InputElement>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Shader2ObjectStructInfo {
     variables: Vec<Shader2Variable>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Shader2ObjectCBufferInfo {
     crc: u32,
     variables: Vec<Shader2Variable>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Shader2ObjectTypedInfo {
     None,
     InputLayout(Shader2ObjectInputLayoutInfo),
@@ -124,7 +124,7 @@ pub enum Shader2ObjectTypedInfo {
 }
 
 #[repr(u32)]
-#[derive(strum::FromRepr, Debug)]
+#[derive(strum::FromRepr, Debug, Clone, Copy)]
 #[allow(non_camel_case_types)]
 enum ObjectType {
     OT_CBUFFER = 0,
@@ -148,7 +148,7 @@ enum ObjectType {
     OT_UNKNOWN_17 = 17, // related to compute?
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(unused)] // TODO
 pub struct Shader2Object {
     name: String,
@@ -212,7 +212,7 @@ struct RawShader2Variable {
 }
 
 #[repr(u32)]
-#[derive(strum::FromRepr, Debug)]
+#[derive(strum::FromRepr, Debug, Copy, Clone)]
 #[allow(non_camel_case_types)]
 enum ClassType {
     CT_UNDEFINED = 0,
@@ -224,7 +224,7 @@ enum ClassType {
     CT_OBJECT = 6,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Shader2Variable {
     name: String,
     sname: String,
