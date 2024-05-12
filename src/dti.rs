@@ -1,5 +1,102 @@
 include!(concat!(env!("OUT_DIR"), "/dti_generated.rs"));
 
+#[allow(non_camel_case_types)]
+#[derive(strum::FromRepr, Debug)]
+#[repr(u32)]
+pub enum PropType {
+    undefined = 0,
+    class,
+    classref,
+    bool,
+    u8,
+    u16,
+    u32,
+    u64,
+    s8,
+    s16,
+    s32,
+    s64,
+    f32,
+    f64,
+    string,
+    color,
+    point,
+    size,
+    rect,
+    matrix44,
+    vector3,
+    vector4,
+    quaternion,
+    property,
+    event,
+    group,
+    pagebegin,
+    pageend,
+    event32,
+    array,
+    propertylist,
+    groupend,
+    cstring,
+    time,
+    float2,
+    float3,
+    float4,
+    float3x3,
+    float4x3,
+    float4x4,
+    easecurve,
+    line,
+    linesegment,
+    ray,
+    Plane,
+    sphere,
+    capsule,
+    aabb,
+    obb,
+    cylinder,
+    triangle,
+    cone,
+    torus,
+    ellpsoid,
+    range,
+    rangef,
+    rangeu16,
+    hermitecurve,
+    enumlist,
+    float3x4,
+    linesegment4,
+    aabb4,
+    oscillator,
+    variable,
+    vector2,
+    matrix33,
+    rect3d_xz,
+    rect3d,
+    rect3d_collision,
+    plane_xz,
+    ray_y,
+    pointf,
+    sizef,
+    rectf,
+    event64,
+
+    type_end,
+    custom = 0x80, // assumed
+}
+
+impl From<u32> for PropType {
+    fn from(value: u32) -> Self {
+        if value >= Self::type_end as u32 {
+            Self::custom
+        } else {
+            Self::from_repr(value).expect("this should never fail!")
+        }
+    }
+}
+
+pub const PROP_ATTR_ARRAY: u32 = 32;
+pub const PROP_ATTR_DYNAMIC: u32 = 128;
+
 #[derive(Debug)]
 pub struct DTI {
     name: &'static str,
@@ -18,6 +115,10 @@ impl PartialEq for DTI {
 }
 
 impl DTI {
+    pub fn from_str(name: &str) -> Option<&'static Self> {
+        generated::DTI_MAP.values().find(|d| d.name() == name)
+    }
+
     pub fn from_hash(hash: u32) -> Option<&'static Self> {
         generated::DTI_MAP.get(&hash)
     }
@@ -32,6 +133,15 @@ impl DTI {
 
     pub fn file_ext(&self) -> Option<&str> {
         self.file_ext
+    }
+
+    pub fn is_type_of(&self, dti: &DTI) -> bool {
+        if self == dti {
+            return true;
+        };
+
+        // need to implement parent stuff in build script
+        todo!("check parents")
     }
 }
 

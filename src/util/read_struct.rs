@@ -38,3 +38,19 @@ where
         S::ref_from(bytes)
     }))
 }
+
+pub fn read_struct_array_stream<S, R>(reader: &mut R, num_structs: usize) -> anyhow::Result<Vec<S>>
+where
+    S: FromBytes + Clone,
+    R: Read,
+{
+    let mut bytes = vec![0u8; std::mem::size_of::<S>() * num_structs];
+    reader.read_exact(&mut bytes)?;
+
+    let mut v = vec![];
+    for obj in read_struct_array::<S>(&bytes, num_structs)? {
+        v.push(obj.ok_or_else(|| anyhow!("should not be None"))?.clone())
+    }
+
+    Ok(v)
+}

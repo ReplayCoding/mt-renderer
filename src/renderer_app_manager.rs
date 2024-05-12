@@ -23,7 +23,6 @@ pub trait RendererApp {
     ) -> anyhow::Result<()>;
 }
 
-/// Not the best name... contains render manager fields state that is accessible to apps
 pub struct RendererAppManagerPublic {
     window: Arc<Window>,
 

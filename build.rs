@@ -7,36 +7,17 @@ use std::{
     path::Path,
 };
 
-fn u64_from_hex_string<'de, D>(d: D) -> Result<Option<u64>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s = Option::<String>::deserialize(d)?;
-
-    Ok(s.map(|s| {
-        let mut s = s.as_str();
-
-        if s.starts_with("0x") {
-            s = &s[2..];
-        }
-
-        u64::from_str_radix(s, 16).unwrap()
-    }))
-}
-
 #[derive(Deserialize)]
 #[allow(unused)]
 struct DTIEntry {
-    #[serde(deserialize_with = "u64_from_hex_string")]
-    addr: Option<u64>,
-    #[serde(deserialize_with = "u64_from_hex_string")]
-    vtable: Option<u64>,
+    address: u64,
+    parent_address: u64,
     name: String,
-    parent_name: Option<String>,
-    crc: u32,
-    #[serde(deserialize_with = "u64_from_hex_string")]
-    size: Option<u64>,
-    file_ext: Option<String>,
+
+    hash: u32,
+    size: u64,
+
+    file_extension: Option<String>,
 }
 
 fn create_clean_name(name: &str) -> String {
@@ -65,21 +46,21 @@ fn build_dti_map() {
     writeln!(&mut out_file, "pub mod generated {{").unwrap();
     for line in dtis.lines() {
         let entry: DTIEntry = serde_json::from_str(line).unwrap();
-        if !handled_entries.contains(&entry.crc) {
-            handled_entries.insert(entry.crc);
+        if !handled_entries.contains(&entry.hash) {
+            handled_entries.insert(entry.hash);
 
             let clean_name = create_clean_name(&entry.name);
 
             writeln!(
                 &mut out_file,
                 "pub const {}: super::DTI = super::DTI {{ name: {:?}, hash: {}, file_ext: {:?} }};",
-                clean_name, &entry.name, entry.crc, entry.file_ext
+                clean_name, &entry.name, entry.hash, entry.file_extension
             )
             .unwrap();
 
             let formatted_entry = clean_name.to_string();
 
-            map.entry(entry.crc, &formatted_entry);
+            map.entry(entry.hash, &formatted_entry);
         }
     }
 
