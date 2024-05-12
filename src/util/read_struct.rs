@@ -1,4 +1,4 @@
-use std::{io::Read, mem::size_of};
+use std::{ffi::CStr, io::Read, mem::size_of};
 
 use anyhow::anyhow;
 use zerocopy::FromBytes;
@@ -39,7 +39,7 @@ where
     }))
 }
 
-pub fn read_struct_array_stream<S, R>(reader: &mut R, num_structs: usize) -> anyhow::Result<Vec<S>>
+pub fn _read_struct_array_stream<S, R>(reader: &mut R, num_structs: usize) -> anyhow::Result<Vec<S>>
 where
     S: FromBytes + Clone,
     R: Read,
@@ -53,4 +53,30 @@ where
     }
 
     Ok(v)
+}
+
+pub fn read_null_terminated_string<R: Read>(
+    reader: &mut R,
+    max_size: usize,
+) -> anyhow::Result<String> {
+    let mut v = vec![];
+
+    let mut num_read_bytes = 0;
+    let mut current_byte = [0u8; 1];
+    while let Ok(_) = reader.read_exact(&mut current_byte) {
+        num_read_bytes += 1;
+        let current_byte = current_byte[0];
+
+        // TODO: is this correct?
+        if current_byte == 0 || num_read_bytes > max_size {
+            v.push(0);
+            break;
+        }
+
+        v.push(current_byte);
+    }
+
+    Ok(CStr::from_bytes_until_nul(&v)?
+        .to_string_lossy()
+        .to_string())
 }

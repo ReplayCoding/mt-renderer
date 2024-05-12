@@ -9,7 +9,8 @@ use zerocopy::{FromBytes, FromZeroes};
 
 use crate::{
     dti::{self, PropType},
-    util, DTI,
+    util::{self, read_null_terminated_string},
+    DTI,
 };
 
 #[repr(C, packed)]
@@ -69,15 +70,27 @@ struct PropertyInfo {
 }
 
 #[derive(Debug)]
+pub struct Property(Vec<PropertyValue>);
+
+#[derive(Debug)]
 pub enum PropertyValue {
-    Class(Vec<Class>),
-    U16(Vec<u16>),
+    Class(Class),
+    U16(u16),
+    Custom(Vec<String>),
+    Vector3(f32, f32, f32),
+    Bool(bool),
+    U8(u8),
+    F32(f32),
+    S32(i32),
+    U32(u32),
+    S16(i16),
+    S8(i8),
 }
 
 #[derive(Debug)]
 pub struct Class {
     class_type: &'static DTI,
-    props: Vec<(String, PropertyValue)>,
+    props: Vec<(String, Property)>,
 }
 
 impl Class {
@@ -85,7 +98,7 @@ impl Class {
         self.class_type
     }
 
-    pub fn props(&self) -> &[(String, PropertyValue)] {
+    pub fn props(&self) -> &[(String, Property)] {
         &self.props
     }
 }
@@ -94,33 +107,78 @@ fn read_static_prop<R: Read + Seek>(
     reader: &mut R,
     prop: &PropertyInfo,
     objects: &[ObjectInfo],
-) -> anyhow::Result<PropertyValue> {
+) -> anyhow::Result<Property> {
     // array len?
     let array_len = util::read_struct::<u32, _>(reader)?;
     debug!("read_static_prop len: {}", array_len);
 
-    Ok(match prop.prop_type {
-        PropType::class => PropertyValue::Class(
-            (0..array_len)
-                .map(|_| read_class(reader, objects))
-                .collect::<anyhow::Result<Vec<Class>>>()?,
-        ),
+    Ok(Property(
+        (0..array_len)
+            .map(|_idx| {
+                Ok(match prop.prop_type {
+                    PropType::class => PropertyValue::Class(read_class(reader, objects)?),
+                    PropType::u16 => PropertyValue::U16(util::read_struct::<u16, _>(reader)?),
+                    PropType::vector3 => {
+                        let v = PropertyValue::Vector3(
+                            util::read_struct::<f32, _>(reader)?,
+                            util::read_struct::<f32, _>(reader)?,
+                            util::read_struct::<f32, _>(reader)?,
+                        );
 
-        PropType::u16 => PropertyValue::U16(util::read_struct_array_stream::<u16, _>(
-            reader,
-            array_len as usize,
-        )?),
+                        assert_eq!(0.0, util::read_struct::<f32, _>(reader)?); // padding
 
-        _ => todo!("handle prop type: {:?}", prop.prop_type),
-    })
+                        v
+                    }
+                    PropType::bool => PropertyValue::Bool(util::read_struct::<u8, _>(reader)? != 0),
+                    PropType::u8 => PropertyValue::U8(util::read_struct::<u8, _>(reader)?),
+                    PropType::f32 => PropertyValue::F32(util::read_struct::<f32, _>(reader)?),
+                    PropType::s32 => PropertyValue::S32(util::read_struct::<i32, _>(reader)?),
+                    PropType::u32 => PropertyValue::U32(util::read_struct::<u32, _>(reader)?),
+                    PropType::s16 => PropertyValue::S16(util::read_struct::<i16, _>(reader)?),
+                    PropType::s8 => PropertyValue::S8(util::read_struct::<i8, _>(reader)?),
+
+                    _ => todo!("handle prop type: {:?}", prop.prop_type),
+                })
+            })
+            .collect::<anyhow::Result<Vec<PropertyValue>>>()?,
+    ))
 }
 
+// TODO: can this be merged with read_static_prop?
 fn read_dynamic_prop<R: Read + Seek>(
     reader: &mut R,
     prop: &PropertyInfo,
     objects: &[ObjectInfo],
-) -> anyhow::Result<PropertyValue> {
-    todo!()
+) -> anyhow::Result<Property> {
+    // array len?
+    let array_len = util::read_struct::<u32, _>(reader)?;
+    debug!("read_dynamic_prop len: {}", array_len);
+
+    Ok(Property(
+        (0..array_len)
+            .map(|_idx| {
+                Ok(match prop.prop_type {
+                    PropType::custom => {
+                        let num_customs = util::read_struct::<u8, _>(reader)?;
+                        let custom_params_values = (0..num_customs)
+                            .map(|_| Ok(read_null_terminated_string(reader, 0x80)?))
+                            .collect::<anyhow::Result<Vec<String>>>()?;
+
+                        debug!("custom values {:?}", custom_params_values);
+
+                        PropertyValue::Custom(custom_params_values)
+                    }
+                    PropType::bool => PropertyValue::Bool(util::read_struct::<u8, _>(reader)? != 0),
+                    PropType::classref => PropertyValue::Class(read_class(reader, objects)?),
+                    PropType::s16 => PropertyValue::S16(util::read_struct::<i16, _>(reader)?),
+                    PropType::s32 => PropertyValue::S32(util::read_struct::<i32, _>(reader)?),
+                    PropType::u32 => PropertyValue::U32(util::read_struct::<u32, _>(reader)?),
+
+                    _ => todo!("handle prop type: {:?}", prop.prop_type),
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?,
+    ))
 }
 
 fn read_class<R: Read + Seek>(reader: &mut R, objects: &[ObjectInfo]) -> anyhow::Result<Class> {
@@ -165,9 +223,11 @@ fn read_class<R: Read + Seek>(reader: &mut R, objects: &[ObjectInfo]) -> anyhow:
                 read_static_prop(reader, prop, objects)
             }?;
 
+            debug!("prop {} value {:?}", prop.name, value);
+
             Ok((prop.name.clone(), value))
         })
-        .collect::<anyhow::Result<Vec<(String, PropertyValue)>>>()?;
+        .collect::<anyhow::Result<Vec<(String, Property)>>>()?;
 
     Ok(Class {
         class_type: object_info.dti,
