@@ -2,6 +2,7 @@ use std::{mem::size_of, path::PathBuf, time::Instant};
 
 use glam::Mat4;
 use mt_renderer::{
+    get_enum_value,
     model::Model,
     mtserializer::{self, PropertyValue},
     renderer_app_manager::{RendererApp, RendererAppManager, RendererAppManagerPublic},
@@ -106,48 +107,27 @@ impl RendererApp for ModelViewerApp {
             resource_manager.get_resource_fancy(&args[2], &DTIs::nGO__rCharacter)?;
         let character_info = mtserializer::deserialize(&mut character_file)?;
 
-        let model_path: String = character_info
-            .props()
-            .iter()
-            .find(|(name, _)| name == "mpModel")
-            .expect("couldn't find mpModel")
-            .1
-            .values()
-            .iter()
-            .map(|val| {
-                if let PropertyValue::Custom(val) = val {
-                    val[1].clone()
-                } else {
-                    panic!("fail!")
-                }
-            })
-            .collect();
+        let model_path: &String = &get_enum_value!(
+            &&character_info
+                .get_prop("mpModel")
+                .expect("couldn't find mpModel")
+                .values()[0],
+            PropertyValue::Custom
+        )[1]; // resource custom: (type, custom) TODO? handle customs properly
+        let model_path = PathBuf::from(model_path.replace("\\", "/"));
 
         let parts_disp: Vec<bool> = character_info
-            .props()
-            .iter()
-            .find(|(name, _)| name == "PartsDisp")
+            .get_prop("PartsDisp")
             .expect("couldn't find partsdisp")
-            .1
             .values()
             .iter()
-            .map(|val| {
-                if let PropertyValue::Bool(val) = val {
-                    *val
-                } else {
-                    panic!("fail!")
-                }
-            })
+            .map(|val| *get_enum_value!(val, PropertyValue::Bool))
             .collect();
 
-        let mut model_resource = resource_manager
-            .get_resource(&PathBuf::from(model_path.replace("\\", "/")), &DTIs::rModel)?;
+        let mut model_resource = resource_manager.get_resource(&model_path, &DTIs::rModel)?;
         let model_file = ModelFile::new(&mut model_resource)?;
 
-        let mut material_resource = resource_manager.get_resource(
-            &PathBuf::from(model_path.replace("\\", "/")),
-            &DTIs::rMaterial,
-        )?;
+        let mut material_resource = resource_manager.get_resource(&model_path, &DTIs::rMaterial)?;
 
         let material = MaterialFile::new(&mut material_resource, &shader2)?;
 

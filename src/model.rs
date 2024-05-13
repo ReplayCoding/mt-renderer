@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::PathBuf};
 
-use log::{info, trace};
+use log::{debug, info, trace};
 use wgpu::util::DeviceExt;
 use zerocopy::AsBytes;
 
@@ -44,7 +44,7 @@ impl Model {
             .textures()
             .iter()
             .map(|path| {
-                info!("Loading texture {:?}", path);
+                trace!("Loading texture {:?}", path);
                 let mut file = resource_manager
                     .get_resource(&PathBuf::from(&path.replace('\\', "/")), &DTIs::rTexture)
                     .ok()?;
@@ -132,7 +132,8 @@ impl Model {
             .collect();
 
         for primitive in primitives.iter() {
-            let debug_id: u32 = (primitive.inputlayout() & 0xfffff000) >> 0xc;
+            let debug_id: u32 =
+                model_file.boundary_infos()[primitive.boundary_num() as usize].joint();
             let debug_id_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("rModel debug id buffer"),
                 contents: [debug_id].as_bytes(),
@@ -187,7 +188,7 @@ impl Model {
                     let material_name = &model_file.material_names()[primitive.material_no() as usize];
                     let attributes =
                         Shader2File::create_vertex_buffer_elements(inputlayout_specific);
-                    info!(
+                    debug!(
                         "Creating layout for {} {}: {:#?} (textured {}) (mat {}) (topo {:?})",
                         (primitive.inputlayout() & 0xfffff000) >> 0xc,
                         inputlayout_obj.name(),
@@ -243,6 +244,7 @@ impl Model {
                             primitive: wgpu::PrimitiveState {
                                 topology: primitive.topology().to_wgpu(),
                                 strip_index_format: Some(wgpu::IndexFormat::Uint16),
+                                cull_mode: Some(wgpu::Face::Front),
                                 ..Default::default()
                             },
                             depth_stencil: Some(wgpu::DepthStencilState {
@@ -311,7 +313,6 @@ impl Model {
         rpass.set_index_buffer(self.indexbuf.slice(..), wgpu::IndexFormat::Uint16);
 
         for (id, primitive) in self.primitives.iter().enumerate() {
-            // HACK: testing partdisp, need to load this from rCharacter...
             if !self.parts_disp[primitive.parts_no() as usize] {
                 continue;
             }
@@ -335,7 +336,7 @@ impl Model {
                 ..(primitive.vertex_base() + (primitive.vertex_num() * primitive.vertex_stride()))
                     as u64;
 
-            trace!("drawing vertex range: {:?}", vertex_range);
+            // trace!("drawing vertex range: {:?}", vertex_range);
             rpass.set_vertex_buffer(0, self.vertexbuf.slice(vertex_range));
 
             let pipeline = self

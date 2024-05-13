@@ -23,4 +23,4 @@ pub mod rtexture;
 pub mod model;
 pub mod texture;
 
-mod util;
+pub mod util;

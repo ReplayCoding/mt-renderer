@@ -140,6 +140,8 @@ impl<Backing: Read + Seek> ArchiveFile<Backing> {
         let mut content_compressed = vec![0u8; resource.size_compressed as usize];
         reader.read_exact(&mut content_compressed)?;
 
+        drop(reader);
+
         let mut cursor = Cursor::new(&content_compressed);
         let mut decoder = ZlibDecoder::new(&mut cursor);
 

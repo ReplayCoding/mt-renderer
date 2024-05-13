@@ -39,7 +39,7 @@ where
     }))
 }
 
-pub fn _read_struct_array_stream<S, R>(reader: &mut R, num_structs: usize) -> anyhow::Result<Vec<S>>
+pub fn read_struct_array_stream<S, R>(reader: &mut R, num_structs: usize) -> anyhow::Result<Vec<S>>
 where
     S: FromBytes + Clone,
     R: Read,

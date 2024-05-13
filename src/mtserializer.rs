@@ -107,6 +107,13 @@ impl Class {
     pub fn props(&self) -> &[(String, Property)] {
         &self.props
     }
+
+    pub fn get_prop(&self, name: &str) -> Option<&Property> {
+        self.props
+            .iter()
+            .find(|(prop_name, _)| prop_name == name)
+            .map(|(_, prop)| prop)
+    }
 }
 
 fn read_static_prop<R: Read + Seek>(
