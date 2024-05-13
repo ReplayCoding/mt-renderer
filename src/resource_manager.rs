@@ -64,8 +64,8 @@ impl ResourceManager {
         Ok(())
     }
 
-    /// Terrible name. If the path is formatted as "<archive>:<path>", then load
-    /// the resource from that archive
+    // Terrible name. If the path is formatted as "<archive>:<path>", then load
+    // the resource from that archive
     pub fn get_resource_fancy(&mut self, path: &str, dti: &DTI) -> anyhow::Result<Resource> {
         let (archive_path, path): (Option<&str>, &str) = path
             .split_once(':')

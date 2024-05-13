@@ -4,7 +4,7 @@ use std::{
     mem::size_of,
 };
 
-use log::debug;
+use log::{debug, warn};
 use zerocopy::{FromBytes, FromZeroes};
 
 use crate::{
@@ -71,10 +71,15 @@ struct PropertyInfo {
 
 #[derive(Debug)]
 pub struct Property(Vec<PropertyValue>);
+impl Property {
+    pub fn values(&self) -> &[PropertyValue] {
+        &self.0
+    }
+}
 
 #[derive(Debug)]
 pub enum PropertyValue {
-    Class(Class),
+    Class(Option<Class>),
     U16(u16),
     Custom(Vec<String>),
     Vector3(f32, f32, f32),
@@ -85,6 +90,7 @@ pub enum PropertyValue {
     U32(u32),
     S16(i16),
     S8(i8),
+    String(String),
 }
 
 #[derive(Debug)]
@@ -116,7 +122,9 @@ fn read_static_prop<R: Read + Seek>(
         (0..array_len)
             .map(|_idx| {
                 Ok(match prop.prop_type {
-                    PropType::class => PropertyValue::Class(read_class(reader, objects)?),
+                    PropType::class | PropType::classref => {
+                        PropertyValue::Class(read_class(reader, objects)?)
+                    }
                     PropType::u16 => PropertyValue::U16(util::read_struct::<u16, _>(reader)?),
                     PropType::vector3 => {
                         let v = PropertyValue::Vector3(
@@ -136,6 +144,9 @@ fn read_static_prop<R: Read + Seek>(
                     PropType::u32 => PropertyValue::U32(util::read_struct::<u32, _>(reader)?),
                     PropType::s16 => PropertyValue::S16(util::read_struct::<i16, _>(reader)?),
                     PropType::s8 => PropertyValue::S8(util::read_struct::<i8, _>(reader)?),
+                    PropType::string => {
+                        PropertyValue::String(util::read_null_terminated_string(reader, 0x200)?)
+                    }
 
                     _ => todo!("handle prop type: {:?}", prop.prop_type),
                 })
@@ -181,15 +192,19 @@ fn read_dynamic_prop<R: Read + Seek>(
     ))
 }
 
-fn read_class<R: Read + Seek>(reader: &mut R, objects: &[ObjectInfo]) -> anyhow::Result<Class> {
+fn read_class<R: Read + Seek>(
+    reader: &mut R,
+    objects: &[ObjectInfo],
+) -> anyhow::Result<Option<Class>> {
     // blah: 1
     // type: 15
     let class_info = util::read_struct::<u32, _>(reader)?;
 
     debug!("class_info: {:08x}", class_info);
 
-    if class_info == 0xfffe {
-        return Err(anyhow::anyhow!("this returns null"));
+    if (class_info & 0xfffe) == 0xfffe {
+        warn!("this returns null, is this the right behaviour");
+        return Ok(None);
     }
 
     let object_info = &objects[((class_info >> 1) & 0x7fff) as usize];
@@ -229,10 +244,10 @@ fn read_class<R: Read + Seek>(reader: &mut R, objects: &[ObjectInfo]) -> anyhow:
         })
         .collect::<anyhow::Result<Vec<(String, Property)>>>()?;
 
-    Ok(Class {
+    Ok(Some(Class {
         class_type: object_info.dti,
         props,
-    })
+    }))
 }
 
 pub fn deserialize<R: Read + Seek>(reader: &mut R) -> anyhow::Result<Class> {
@@ -326,7 +341,7 @@ pub fn deserialize<R: Read + Seek>(reader: &mut R) -> anyhow::Result<Class> {
     debug!("READING CLASSES");
     let class = read_class(reader, &objects)?;
 
-    Ok(class)
+    Ok(class.expect("root class shouldn't be None"))
 }
 
 #[test]

@@ -26,6 +26,7 @@ pub struct Model {
     primitives: Vec<crate::rmodel::PrimitiveInfo>,
     textures: Vec<Option<Texture>>,
     mat_to_tex: Vec<Option<usize>>,
+    parts_disp: Vec<bool>,
 }
 
 impl Model {
@@ -259,6 +260,8 @@ impl Model {
                 });
         }
 
+        let parts_disp = vec![true; primitives.len()];
+
         Ok(Self {
             vertexbuf,
             indexbuf,
@@ -267,7 +270,12 @@ impl Model {
             primitives,
             textures,
             mat_to_tex,
+            parts_disp,
         })
+    }
+
+    pub fn set_parts_disp(&mut self, parts_disp: &[bool]) {
+        self.parts_disp = parts_disp.to_vec()
     }
 
     pub fn render(
@@ -302,22 +310,9 @@ impl Model {
         rpass.set_bind_group(0, transform_bind_group, &[]);
         rpass.set_index_buffer(self.indexbuf.slice(..), wgpu::IndexFormat::Uint16);
 
-        let parts_disp = [
-            true, true, true, true, true, false, false, true, true, false, true, true, false, true,
-            true, true, true, true, true, false, true, true, true, true, true, true, true, true,
-            true, true, true, false, false, false, false, false, false, false, false, false, true,
-            false, false, false, false, false, false, false, false, false, true, false, false,
-            false, false, false, false, false, false, false, true, false, false, false, false,
-            false, false, false, false, false, false, false, false, false, false, false, false,
-            false, false, false, true, true, true, true, true, true, true, true, true, true, true,
-            true, true, true, true, true, true, true, true, true, true, true, true, true, true,
-            true, true, true, true, true, true, true, true, true, true, true, true, true, true,
-            true, true, true, true, true, true, true, true, true,
-        ];
-
         for (id, primitive) in self.primitives.iter().enumerate() {
             // HACK: testing partdisp, need to load this from rCharacter...
-            if !parts_disp[primitive.parts_no() as usize] {
+            if !self.parts_disp[primitive.parts_no() as usize] {
                 continue;
             }
 

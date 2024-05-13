@@ -1,8 +1,9 @@
-use std::{mem::size_of, path::PathBuf};
+use std::{mem::size_of, path::PathBuf, time::Instant};
 
 use glam::Mat4;
 use mt_renderer::{
     model::Model,
+    mtserializer::{self, PropertyValue},
     renderer_app_manager::{RendererApp, RendererAppManager, RendererAppManagerPublic},
     resource_manager::ResourceManager,
     rmaterial::MaterialFile,
@@ -20,6 +21,8 @@ struct ModelViewerApp {
 
     depth_texture: Option<wgpu::Texture>,
     depth_texture_view: Option<wgpu::TextureView>,
+
+    start_time: Instant,
 }
 
 impl ModelViewerApp {
@@ -64,12 +67,9 @@ impl RendererApp for ModelViewerApp {
 
         let mut resource_manager = ResourceManager::new(&PathBuf::from(&args[1]));
 
-        let mut model_file = resource_manager.get_resource_fancy(&args[2], &DTIs::rModel)?;
-        let mut material_file = resource_manager.get_resource_fancy(&args[2], &DTIs::rMaterial)?;
         let mut shader_file = resource_manager
             .get_resource_fancy("custom_shaders/CustomShaderPackage", &DTIs::rShader2)?;
         let shader2 = Shader2File::new(&mut shader_file)?;
-        let material = MaterialFile::new(&mut material_file, &shader2)?;
 
         let transform_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("transform buffer"),
@@ -102,9 +102,56 @@ impl RendererApp for ModelViewerApp {
             }],
         });
 
-        let model_file = ModelFile::new(&mut model_file)?;
+        let mut character_file =
+            resource_manager.get_resource_fancy(&args[2], &DTIs::nGO__rCharacter)?;
+        let character_info = mtserializer::deserialize(&mut character_file)?;
 
-        let model = Model::new(
+        let model_path: String = character_info
+            .props()
+            .iter()
+            .find(|(name, _)| name == "mpModel")
+            .expect("couldn't find mpModel")
+            .1
+            .values()
+            .iter()
+            .map(|val| {
+                if let PropertyValue::Custom(val) = val {
+                    val[1].clone()
+                } else {
+                    panic!("fail!")
+                }
+            })
+            .collect();
+
+        let parts_disp: Vec<bool> = character_info
+            .props()
+            .iter()
+            .find(|(name, _)| name == "PartsDisp")
+            .expect("couldn't find partsdisp")
+            .1
+            .values()
+            .iter()
+            .map(|val| {
+                if let PropertyValue::Bool(val) = val {
+                    *val
+                } else {
+                    panic!("fail!")
+                }
+            })
+            .collect();
+
+        let mut model_resource = resource_manager
+            .get_resource(&PathBuf::from(model_path.replace("\\", "/")), &DTIs::rModel)?;
+        let model_file = ModelFile::new(&mut model_resource)?;
+
+        let mut material_resource = resource_manager.get_resource(
+            &PathBuf::from(model_path.replace("\\", "/")),
+            &DTIs::rMaterial,
+        )?;
+
+        let material = MaterialFile::new(&mut material_resource, &shader2)?;
+
+        let mut model = Model::new(
             &model_file,
             &material,
             &shader2,
@@ -115,6 +162,8 @@ impl RendererApp for ModelViewerApp {
             swapchain_format,
         )?;
 
+        model.set_parts_disp(&parts_disp);
+
         Ok(ModelViewerApp {
             model,
 
@@ -123,6 +172,7 @@ impl RendererApp for ModelViewerApp {
 
             depth_texture: None,
             depth_texture_view: None,
+            start_time: Instant::now(),
         })
     }
 
@@ -139,8 +189,11 @@ impl RendererApp for ModelViewerApp {
             manager.config().height,
         );
 
-        let transform_mat =
-            compute_mat(manager.config().width as f32 / manager.config().height as f32);
+        let now = Instant::now();
+        let transform_mat = compute_mat(
+            manager.config().width as f32 / manager.config().height as f32,
+            (now.duration_since(self.start_time).as_secs_f32() % 60.0_f32) / 60.0_f32,
+        );
         manager
             .queue()
             .write_buffer(&self.transform_buf, 0, transform_mat.as_ref().as_bytes());
@@ -156,8 +209,8 @@ impl RendererApp for ModelViewerApp {
     }
 }
 
-fn compute_mat(aspect: f32) -> Mat4 {
-    let model = glam::Mat4::IDENTITY; // glam::Mat4::from_scale(glam::vec3(10.,10.,10.));
+fn compute_mat(aspect: f32, angle: f32) -> Mat4 {
+    let model = glam::Mat4::from_rotation_y((angle * 360.0_f32).to_radians()); // glam::Mat4::from_scale(glam::vec3(10.,10.,10.));
 
     let view = {
         let camera_pos = glam::vec3(0.25, 0.25, 0.7);
