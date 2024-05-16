@@ -1,6 +1,7 @@
-use std::{mem::size_of, path::PathBuf, time::Instant};
+use std::{mem::size_of, path::PathBuf};
 
-use glam::Mat4;
+use glam::{Mat4, Vec3};
+use log::trace;
 use mt_renderer::{
     get_enum_value,
     model::Model,
@@ -14,6 +15,60 @@ use mt_renderer::{
 };
 use zerocopy::AsBytes;
 
+#[derive(Debug)]
+struct Camera {
+    position: Vec3,
+
+    yaw: f32,
+    pitch: f32,
+}
+
+impl Camera {
+    const OPENGL_TO_WGPU: glam::Mat4 = glam::Mat4::from_cols(
+        glam::vec4(1.0, 0.0, 0.0, 0.0),
+        glam::vec4(0.0, 1.0, 0.0, 0.0),
+        glam::vec4(0.0, 0.0, 0.5, 0.0),
+        glam::vec4(0.0, 0.0, 0.5, 1.0),
+    );
+
+    fn new(position: Vec3) -> Self {
+        Self {
+            position,
+
+            yaw: -180.,
+            pitch: 0.,
+        }
+    }
+
+    fn view(&self) -> Mat4 {
+        let translation = glam::Mat4::from_translation(self.position);
+        #[rustfmt::skip]
+        let rotation =
+            glam::Mat4::from_axis_angle(glam::vec3(1.,  0., 0.), self.pitch.to_radians()) *
+            glam::Mat4::from_axis_angle(glam::vec3(0., -1., 0.), self.yaw.to_radians());
+
+        (translation * rotation).inverse()
+    }
+
+    fn proj(&self, aspect: f32) -> Mat4 {
+        Self::OPENGL_TO_WGPU * glam::Mat4::perspective_lh(70.0_f32.to_radians(), aspect, 0.01, 50.0)
+    }
+
+    fn view_proj(&self, aspect: f32) -> Mat4 {
+        self.proj(aspect) * self.view()
+    }
+
+    fn mouse_moved(&mut self, frame_mouse_delta: glam::Vec2) {
+        const SENSITIVITY: f32 = 0.1;
+
+        self.yaw -= SENSITIVITY * frame_mouse_delta.x;
+        self.pitch -= SENSITIVITY * frame_mouse_delta.y;
+
+        self.yaw %= 360.0;
+        self.pitch = self.pitch.clamp(-89.0, 89.0);
+    }
+}
+
 struct ModelViewerApp {
     model: Model,
 
@@ -23,7 +78,7 @@ struct ModelViewerApp {
     depth_texture: Option<wgpu::Texture>,
     depth_texture_view: Option<wgpu::TextureView>,
 
-    start_time: Instant,
+    camera: Camera,
 }
 
 impl ModelViewerApp {
@@ -152,7 +207,7 @@ impl RendererApp for ModelViewerApp {
 
             depth_texture: None,
             depth_texture_view: None,
-            start_time: Instant::now(),
+            camera: Camera::new(glam::vec3(0., 0., 1.2)),
         })
     }
 
@@ -168,46 +223,47 @@ impl RendererApp for ModelViewerApp {
             manager.config().width,
             manager.config().height,
         );
+        let depth_view = self
+            .depth_texture_view
+            .as_ref()
+            .expect("should never be None here");
 
-        let now = Instant::now();
-        let transform_mat = compute_mat(
-            manager.config().width as f32 / manager.config().height as f32,
-            (now.duration_since(self.start_time).as_secs_f32() % 60.0_f32) / 60.0_f32,
-        );
+        let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: frame_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: depth_view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+
+        self.camera.mouse_moved(manager.frame_mouse_delta());
+
+        let transform_mat = self
+            .camera
+            .view_proj(manager.config().width as f32 / manager.config().height as f32);
+
         manager
             .queue()
             .write_buffer(&self.transform_buf, 0, transform_mat.as_ref().as_bytes());
 
-        self.model.render(
-            frame_view,
-            self.depth_texture_view.as_ref().unwrap(),
-            &self.transform_bind_group,
-            encoder,
-        );
+        self.model.render(&mut rpass, &self.transform_bind_group);
 
         Ok(())
     }
-}
-
-fn compute_mat(aspect: f32, angle: f32) -> Mat4 {
-    let model = glam::Mat4::from_rotation_y((angle * 360.0_f32).to_radians()); // glam::Mat4::from_scale(glam::vec3(10.,10.,10.));
-
-    let view = {
-        let camera_pos = glam::vec3(0.25, 0.25, 0.7);
-        let camera_target = glam::vec3(camera_pos.x, camera_pos.y, 0.0);
-        let camera_direction = (camera_pos - camera_target).normalize();
-
-        let up = glam::vec3(0., 1., 0.);
-        let camera_right = up.cross(camera_direction).normalize();
-        let camera_up = camera_direction.cross(camera_right).normalize();
-
-        let camera_front = glam::vec3(0., 0., -1.);
-
-        glam::Mat4::look_at_lh(camera_pos, camera_pos + camera_front, camera_up)
-    };
-    let proj = glam::Mat4::perspective_lh(70.0_f32.to_radians(), aspect, 0.01, 5.0);
-
-    proj * view * model
 }
 
 pub fn main() -> anyhow::Result<()> {

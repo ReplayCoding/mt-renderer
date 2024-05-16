@@ -30,6 +30,8 @@ pub struct RendererAppManagerPublic {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
     queue: wgpu::Queue,
+
+    frame_mouse_delta: glam::Vec2,
 }
 
 impl RendererAppManagerPublic {
@@ -43,6 +45,10 @@ impl RendererAppManagerPublic {
 
     pub fn device(&self) -> &wgpu::Device {
         &self.device
+    }
+
+    pub fn frame_mouse_delta(&self) -> glam::Vec2 {
+        self.frame_mouse_delta
     }
 }
 
@@ -111,6 +117,7 @@ where
                 surface,
                 device,
                 queue,
+                frame_mouse_delta: glam::vec2(0., 0.),
             },
 
             app,
@@ -145,6 +152,7 @@ where
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         self.app.render(&self.public, &frame_view, &mut encoder)?;
+        self.public.frame_mouse_delta = glam::vec2(0., 0.); // frame is over, reset mouse delta
 
         self.public.queue.submit(Some(encoder.finish()));
         frame.present();
@@ -152,6 +160,15 @@ where
         self.public.window.request_redraw();
 
         Ok(())
+    }
+
+    fn on_mouse_moved(&mut self, x: f64, y: f64) {
+        let event_delta = glam::vec2(
+            x as f32,
+            y as f32,
+        );
+
+        self.public.frame_mouse_delta += event_delta;
     }
 
     pub fn run() -> anyhow::Result<()> {
@@ -166,12 +183,14 @@ where
 
         let mut manager = pollster::block_on(Self::create(window.clone()))?;
 
-        event_loop.run(move |event, target| {
-            if let Event::WindowEvent {
+        window.set_cursor_grab(winit::window::CursorGrabMode::Confined)?;
+        window.set_cursor_visible(false);
+
+        event_loop.run(move |event, target| match event {
+            Event::WindowEvent {
                 window_id: _,
                 event,
-            } = event
-            {
+            } => {
                 match event {
                     WindowEvent::Resized(new_size) => {
                         manager.resize(&new_size);
@@ -183,6 +202,16 @@ where
                     _ => {}
                 };
             }
+            Event::DeviceEvent {
+                device_id: _,
+                event,
+            } => match event {
+                winit::event::DeviceEvent::MouseMotion { delta } => {
+                    manager.on_mouse_moved(delta.0, delta.1);
+                }
+                _ => {}
+            },
+            _ => (),
         })?;
 
         Ok(())

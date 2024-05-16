@@ -27,12 +27,6 @@ struct MtVector4 {
     w: f32,
 }
 
-impl MtVector4 {
-    fn to_glam_vec4(&self) -> glam::Vec4 {
-        glam::Vec4::new(self.x, self.y, self.z, self.w)
-    }
-}
-
 #[repr(C, packed)]
 #[derive(FromBytes, FromZeroes, Debug, Copy, Clone)]
 struct MtAABB {

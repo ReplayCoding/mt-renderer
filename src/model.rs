@@ -280,35 +280,11 @@ impl Model {
         self.parts_disp = parts_disp.to_vec()
     }
 
-    pub fn render(
-        &self,
-        color_view: &wgpu::TextureView,
-        depth_texture: &wgpu::TextureView,
-        transform_bind_group: &wgpu::BindGroup,
-        encoder: &mut wgpu::CommandEncoder,
+    pub fn render<'a>(
+        &'a self,
+        rpass: &mut wgpu::RenderPass<'a>,
+        transform_bind_group: &'a wgpu::BindGroup,
     ) {
-        let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: None,
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: color_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: depth_texture,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
-                    store: wgpu::StoreOp::Store,
-                }),
-                stencil_ops: None,
-            }),
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
-
         rpass.set_bind_group(0, transform_bind_group, &[]);
         rpass.set_index_buffer(self.indexbuf.slice(..), wgpu::IndexFormat::Uint16);
 
