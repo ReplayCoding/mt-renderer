@@ -1,9 +1,9 @@
 use std::{mem::size_of, path::PathBuf};
 
 use glam::{Mat4, Vec3};
-use log::trace;
 use mt_renderer::{
     get_enum_value,
+    input_state::{InputState, KeyState},
     model::Model,
     mtserializer::{self, PropertyValue},
     renderer_app_manager::{RendererApp, RendererAppManager, RendererAppManagerPublic},
@@ -21,22 +21,20 @@ struct Camera {
 
     yaw: f32,
     pitch: f32,
+
+    fov: f32,
 }
 
 impl Camera {
-    const OPENGL_TO_WGPU: glam::Mat4 = glam::Mat4::from_cols(
-        glam::vec4(1.0, 0.0, 0.0, 0.0),
-        glam::vec4(0.0, 1.0, 0.0, 0.0),
-        glam::vec4(0.0, 0.0, 0.5, 0.0),
-        glam::vec4(0.0, 0.0, 0.5, 1.0),
-    );
+    // TODO: make this configurable
+    const SENSITIVITY: f32 = 0.1;
 
-    fn new(position: Vec3) -> Self {
+    fn new(position: Vec3, yaw: f32, pitch: f32, fov: f32) -> Self {
         Self {
             position,
-
-            yaw: -180.,
-            pitch: 0.,
+            yaw,
+            pitch,
+            fov,
         }
     }
 
@@ -45,24 +43,25 @@ impl Camera {
         #[rustfmt::skip]
         let rotation =
             glam::Mat4::from_axis_angle(glam::vec3(1.,  0., 0.), self.pitch.to_radians()) *
-            glam::Mat4::from_axis_angle(glam::vec3(0., -1., 0.), self.yaw.to_radians());
+            glam::Mat4::from_axis_angle(glam::vec3(0., 1., 0.), self.yaw.to_radians());
 
         (translation * rotation).inverse()
     }
 
     fn proj(&self, aspect: f32) -> Mat4 {
-        Self::OPENGL_TO_WGPU * glam::Mat4::perspective_lh(70.0_f32.to_radians(), aspect, 0.01, 50.0)
+        // TODO: confirm that this is sane!
+        glam::Mat4::perspective_rh(self.fov.to_radians(), aspect, 0.01, 50.0)
     }
 
     fn view_proj(&self, aspect: f32) -> Mat4 {
         self.proj(aspect) * self.view()
     }
 
-    fn mouse_moved(&mut self, frame_mouse_delta: glam::Vec2) {
-        const SENSITIVITY: f32 = 0.1;
+    fn update(&mut self, input: &InputState) {
+        let frame_mouse_delta = input.frame_mouse_delta();
 
-        self.yaw -= SENSITIVITY * frame_mouse_delta.x;
-        self.pitch -= SENSITIVITY * frame_mouse_delta.y;
+        self.yaw -= Self::SENSITIVITY * frame_mouse_delta.x;
+        self.pitch -= Self::SENSITIVITY * frame_mouse_delta.y;
 
         self.yaw %= 360.0;
         self.pitch = self.pitch.clamp(-89.0, 89.0);
@@ -207,7 +206,7 @@ impl RendererApp for ModelViewerApp {
 
             depth_texture: None,
             depth_texture_view: None,
-            camera: Camera::new(glam::vec3(0., 0., 1.2)),
+            camera: Camera::new(glam::vec3(0., 0., 1.), 0., 0., 50.),
         })
     }
 
@@ -250,7 +249,7 @@ impl RendererApp for ModelViewerApp {
             occlusion_query_set: None,
         });
 
-        self.camera.mouse_moved(manager.frame_mouse_delta());
+        self.camera.update(manager.input());
 
         let transform_mat = self
             .camera

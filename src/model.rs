@@ -244,7 +244,7 @@ impl Model {
                             primitive: wgpu::PrimitiveState {
                                 topology: primitive.topology().to_wgpu(),
                                 strip_index_format: Some(wgpu::IndexFormat::Uint16),
-                                cull_mode: Some(wgpu::Face::Front),
+                                cull_mode: Some(wgpu::Face::Back),
                                 ..Default::default()
                             },
                             depth_stencil: Some(wgpu::DepthStencilState {

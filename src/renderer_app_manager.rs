@@ -1,10 +1,15 @@
 use log::trace;
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use winit::{
-    event::{Event, WindowEvent},
+    event::{DeviceEvent, Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::Window,
 };
+
+use crate::input_state::{InputState, KeyState};
 
 pub trait RendererApp {
     fn setup(
@@ -31,7 +36,9 @@ pub struct RendererAppManagerPublic {
     device: wgpu::Device,
     queue: wgpu::Queue,
 
-    frame_mouse_delta: glam::Vec2,
+    input: InputState,
+
+    frame_time: Duration,
 }
 
 impl RendererAppManagerPublic {
@@ -47,14 +54,20 @@ impl RendererAppManagerPublic {
         &self.device
     }
 
-    pub fn frame_mouse_delta(&self) -> glam::Vec2 {
-        self.frame_mouse_delta
+    pub fn input(&self) -> &InputState {
+        &self.input
+    }
+
+    pub fn frame_time(&self) -> Duration {
+        self.frame_time
     }
 }
 
 pub struct RendererAppManager<A: RendererApp> {
     public: RendererAppManagerPublic,
     app: A,
+
+    last_frame: Instant,
 }
 
 impl<A> RendererAppManager<A>
@@ -117,10 +130,12 @@ where
                 surface,
                 device,
                 queue,
-                frame_mouse_delta: glam::vec2(0., 0.),
+                input: InputState::new(),
+                frame_time: Duration::ZERO,
             },
 
             app,
+            last_frame: Instant::now(),
         })
     }
 
@@ -137,6 +152,10 @@ where
     }
 
     fn render(&mut self) -> anyhow::Result<()> {
+        let this_frame = Instant::now();
+        self.public.frame_time = this_frame.duration_since(self.last_frame);
+        self.last_frame = this_frame;
+
         let frame = self
             .public
             .surface
@@ -152,7 +171,8 @@ where
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         self.app.render(&self.public, &frame_view, &mut encoder)?;
-        self.public.frame_mouse_delta = glam::vec2(0., 0.); // frame is over, reset mouse delta
+
+        self.public.input.next_frame();
 
         self.public.queue.submit(Some(encoder.finish()));
         frame.present();
@@ -163,12 +183,9 @@ where
     }
 
     fn on_mouse_moved(&mut self, x: f64, y: f64) {
-        let event_delta = glam::vec2(
-            x as f32,
-            y as f32,
-        );
+        let event_delta = glam::vec2(x as f32, y as f32);
 
-        self.public.frame_mouse_delta += event_delta;
+        self.public.input.add_mouse_movement(event_delta);
     }
 
     pub fn run() -> anyhow::Result<()> {
@@ -199,6 +216,34 @@ where
                         manager.render().unwrap();
                     }
                     WindowEvent::CloseRequested => target.exit(),
+
+                    WindowEvent::KeyboardInput {
+                        device_id: _,
+                        event,
+                        is_synthetic: _,
+                    } => {
+                        let translated_key =
+                            if let winit::keyboard::PhysicalKey::Code(key) = event.physical_key {
+                                match key {
+                                    winit::keyboard::KeyCode::KeyW => KeyState::W,
+                                    winit::keyboard::KeyCode::KeyA => KeyState::A,
+                                    winit::keyboard::KeyCode::KeyS => KeyState::S,
+                                    winit::keyboard::KeyCode::KeyD => KeyState::D,
+                                    _ => KeyState::empty(),
+                                }
+                            } else {
+                                KeyState::empty()
+                            };
+
+                        match event.state {
+                            winit::event::ElementState::Pressed => {
+                                manager.public.input.set_key(translated_key)
+                            }
+                            winit::event::ElementState::Released => {
+                                manager.public.input.unset_key(translated_key)
+                            }
+                        };
+                    }
                     _ => {}
                 };
             }
@@ -206,7 +251,7 @@ where
                 device_id: _,
                 event,
             } => match event {
-                winit::event::DeviceEvent::MouseMotion { delta } => {
+                DeviceEvent::MouseMotion { delta } => {
                     manager.on_mouse_moved(delta.0, delta.1);
                 }
                 _ => {}

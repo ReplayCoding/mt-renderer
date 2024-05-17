@@ -9,6 +9,7 @@ pub mod dti;
 pub use dti::generated as DTIs;
 pub use dti::DTI;
 
+pub mod input_state;
 pub mod renderer_app_manager;
 pub mod resource_manager;
 
