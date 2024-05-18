@@ -25,3 +25,6 @@ pub mod model;
 pub mod texture;
 
 pub mod util;
+
+pub mod debug_overlay;
+pub mod camera;
