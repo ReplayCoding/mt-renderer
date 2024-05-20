@@ -3,6 +3,7 @@ use std::{mem::size_of, path::PathBuf};
 use glam::Mat4;
 use mt_renderer::{
     camera::Camera,
+    debug_overlay::DebugOverlay,
     get_enum_value,
     model::Model,
     mtserializer::{self, PropertyValue},
@@ -17,6 +18,7 @@ use zerocopy::AsBytes;
 
 struct ModelViewerApp {
     model: Model,
+    debug_overlay: DebugOverlay,
 
     transform_buf: wgpu::Buffer,
     transform_bind_group: wgpu::BindGroup,
@@ -145,6 +147,8 @@ impl RendererApp for ModelViewerApp {
 
         model.set_parts_disp(&parts_disp);
 
+        let debug_overlay = DebugOverlay::new(device, queue, swapchain_format);
+
         Ok(ModelViewerApp {
             model,
 
@@ -154,6 +158,7 @@ impl RendererApp for ModelViewerApp {
             depth_texture: None,
             depth_texture_view: None,
             camera: Camera::new(glam::vec3(0., 0., 1.), 0., 0., 50.),
+            debug_overlay,
         })
     }
 
@@ -196,17 +201,32 @@ impl RendererApp for ModelViewerApp {
             occlusion_query_set: None,
         });
 
-        self.camera.update(manager.input());
+        self.camera.update(
+            manager.input(),
+            manager.config().width as f32 / manager.config().height as f32,
+        );
 
-        let transform_mat = self
-            .camera
-            .view_proj(manager.config().width as f32 / manager.config().height as f32);
+        let transform_mat = self.camera.view_proj();
 
         manager
             .queue()
             .write_buffer(&self.transform_buf, 0, transform_mat.as_ref().as_bytes());
 
-        self.model.render(&mut rpass, &self.transform_bind_group);
+        self.model.render(
+            &mut rpass,
+            manager.queue(),
+            &self.transform_bind_group,
+            &mut self.debug_overlay,
+        );
+
+        self.debug_overlay
+            .render(&mut rpass, manager.queue(), &self.camera);
+
+        Ok(())
+    }
+
+    fn post_render(&mut self) -> anyhow::Result<()> {
+        self.debug_overlay.clear();
 
         Ok(())
     }

@@ -5,6 +5,7 @@ use wgpu::util::DeviceExt;
 use zerocopy::AsBytes;
 
 use crate::{
+    debug_overlay::DebugOverlay,
     resource_manager::ResourceManager,
     rmaterial::MaterialFile,
     rmodel::ModelFile,
@@ -27,6 +28,8 @@ pub struct Model {
     textures: Vec<Option<Texture>>,
     mat_to_tex: Vec<Option<usize>>,
     parts_disp: Vec<bool>,
+
+    joint_positions: Vec<glam::Vec3>,
 }
 
 impl Model {
@@ -264,6 +267,8 @@ impl Model {
 
         let parts_disp = vec![true; primitives.len()];
 
+        let joint_info = model_file.joint_info();
+
         Ok(Self {
             vertexbuf,
             indexbuf,
@@ -273,6 +278,15 @@ impl Model {
             textures,
             mat_to_tex,
             parts_disp,
+            joint_positions: joint_info
+                .infos()
+                .iter()
+                .enumerate()
+                .map(|(idx, info)| {
+                    let o = info.offset();
+                    glam::vec3(o.x, o.y, o.z)
+                })
+                .collect(),
         })
     }
 
@@ -283,10 +297,20 @@ impl Model {
     pub fn render<'a>(
         &'a self,
         rpass: &mut wgpu::RenderPass<'a>,
+        queue: &wgpu::Queue,
         transform_bind_group: &'a wgpu::BindGroup,
+        debug_overlay: &mut DebugOverlay,
     ) {
         rpass.set_bind_group(0, transform_bind_group, &[]);
         rpass.set_index_buffer(self.indexbuf.slice(..), wgpu::IndexFormat::Uint16);
+
+        for joint_pos in &self.joint_positions {
+            debug_overlay.add_cube(
+                queue,
+                *joint_pos * glam::Vec3::splat(0.01),
+                glam::Vec3::splat(0.005),
+            );
+        }
 
         for (id, primitive) in self.primitives.iter().enumerate() {
             if !self.parts_disp[primitive.parts_no() as usize] {

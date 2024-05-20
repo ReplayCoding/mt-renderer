@@ -8,11 +8,11 @@ var<uniform> transform: mat4x4<f32>;
 
 @vertex
 fn vs_main(
-        @location(0) position: vec3f,
+        @location(0) position: vec4f,
         @location(1) texcoord: vec2f,
     ) -> VertexOutput {
     var out: VertexOutput;
-    out.position = transform * vec4f(position, 1.f);
+    out.position = transform * vec4f(position.xyz, 1.f);
     out.texcoord = texcoord;
 
     return out;

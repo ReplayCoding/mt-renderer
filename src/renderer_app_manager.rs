@@ -26,6 +26,10 @@ pub trait RendererApp {
         frame_view: &wgpu::TextureView,
         encoder: &mut wgpu::CommandEncoder,
     ) -> anyhow::Result<()>;
+
+    fn post_render(&mut self) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
 
 pub struct RendererAppManagerPublic {
@@ -176,6 +180,9 @@ where
 
         self.public.queue.submit(Some(encoder.finish()));
         frame.present();
+
+        // FIXME: Where exactly should this be?
+        self.app.post_render()?;
 
         self.public.window.request_redraw();
 

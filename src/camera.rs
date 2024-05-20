@@ -10,6 +10,7 @@ pub struct Camera {
     pitch: f32,
 
     fov: f32,
+    aspect: f32,
 }
 
 impl Camera {
@@ -22,29 +23,30 @@ impl Camera {
             yaw,
             pitch,
             fov,
+            aspect: 1.0,
         }
     }
 
-    fn view(&self) -> Mat4 {
+    pub fn view(&self) -> Mat4 {
         let translation = glam::Mat4::from_translation(self.position);
         #[rustfmt::skip]
         let rotation =
-            glam::Mat4::from_axis_angle(glam::vec3(1.,  0., 0.), self.pitch.to_radians()) *
-            glam::Mat4::from_axis_angle(glam::vec3(0., 1., 0.), self.yaw.to_radians());
+            glam::Mat4::from_axis_angle(glam::vec3(0., 1., 0.), self.yaw.to_radians()) *
+            glam::Mat4::from_axis_angle(glam::vec3(1.,  0., 0.), self.pitch.to_radians());
 
         (translation * rotation).inverse()
     }
 
-    fn proj(&self, aspect: f32) -> Mat4 {
+    pub fn proj(&self) -> Mat4 {
         // TODO: confirm that this is sane!
-        glam::Mat4::perspective_rh(self.fov.to_radians(), aspect, 0.01, 50.0)
+        glam::Mat4::perspective_rh(self.fov.to_radians(), self.aspect, 0.01, 50.0)
     }
 
-    pub fn view_proj(&self, aspect: f32) -> Mat4 {
-        self.proj(aspect) * self.view()
+    pub fn view_proj(&self) -> Mat4 {
+        self.proj() * self.view()
     }
 
-    pub fn update(&mut self, input: &InputState) {
+    pub fn update(&mut self, input: &InputState, aspect: f32) {
         let frame_mouse_delta = input.frame_mouse_delta();
 
         self.yaw -= Self::SENSITIVITY * frame_mouse_delta.x;
@@ -52,5 +54,7 @@ impl Camera {
 
         self.yaw %= 360.0;
         self.pitch = self.pitch.clamp(-89.0, 89.0);
+
+        self.aspect = aspect;
     }
 }

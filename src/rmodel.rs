@@ -20,11 +20,11 @@ struct MtVector3 {
 
 #[repr(C, packed)]
 #[derive(FromBytes, FromZeroes, Debug, Copy, Clone)]
-struct MtVector4 {
-    x: f32,
-    y: f32,
-    z: f32,
-    w: f32,
+pub struct MtVector4 {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub w: f32,
 }
 
 #[repr(C, packed)]
@@ -37,10 +37,10 @@ struct MtAABB {
 #[repr(C, packed)]
 #[derive(FromBytes, FromZeroes, Debug, Copy, Clone)]
 
-struct MtFloat3A {
-    x: f32,
-    y: f32,
-    z: f32,
+pub struct MtFloat3A {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
 }
 
 #[repr(C, packed)]
@@ -52,8 +52,8 @@ struct MtSphere {
 
 #[repr(C, packed)]
 #[derive(FromBytes, FromZeroes, Copy, Clone)]
-struct MtMatrix {
-    m: [MtVector4; 4],
+pub struct MtMatrix {
+    pub m: [MtVector4; 4],
 }
 
 impl std::fmt::Debug for MtMatrix {
@@ -268,6 +268,28 @@ impl JointInfo {
     fn symmetry(&self) -> u32 {
         (self.bitfield_0x0 >> 16) & 0xff
     }
+
+    pub fn offset(&self) -> MtFloat3A {
+        self.offset
+    }
+}
+
+pub struct JointInfos {
+    joint_infos: Vec<JointInfo>,
+    imats: Vec<MtMatrix>,
+    lmats: Vec<MtMatrix>,
+
+    joint_table: [u8; 0x100],
+}
+
+impl JointInfos {
+    pub fn infos(&self) -> &[JointInfo] {
+        &self.joint_infos
+    }
+
+    pub fn imats(&self) -> &[MtMatrix] {
+        &self.imats
+    }
 }
 
 pub struct ModelFile {
@@ -278,6 +300,7 @@ pub struct ModelFile {
     vertex_buf: Vec<u8>,
     index_buf: Vec<u16>,
     boundary_infos: Vec<BoundaryInfo>,
+    joint_info: JointInfos,
 }
 
 impl ModelFile {
@@ -347,7 +370,7 @@ impl ModelFile {
                 .collect::<anyhow::Result<_>>()?;
 
         reader.seek(std::io::SeekFrom::Start(header.joint_info as u64))?;
-        if header.jnt_num != 0 {
+        let joint_info = if header.jnt_num != 0 {
             let mut joint_info_bytes = vec![0u8; header.jnt_num as usize * size_of::<JointInfo>()];
             reader.read_exact(&mut joint_info_bytes)?;
             let joint_infos: Vec<JointInfo> =
@@ -371,18 +394,32 @@ impl ModelFile {
             let imats =
                 util::read_struct_array_stream::<MtMatrix, _>(reader, header.jnt_num.into())?;
 
-            for lmat in lmats {
+            for lmat in &lmats {
                 debug!("lmat {:#?}", lmat);
             }
 
-            for imat in imats {
+            for imat in &imats {
                 debug!("imat {:#?}", imat);
             }
 
             let mut joint_table = [0u8; 0x100];
             reader.read_exact(&mut joint_table)?;
             debug!("joint table {:?}", joint_table);
-        }
+
+            JointInfos {
+                joint_infos,
+                imats,
+                lmats,
+                joint_table,
+            }
+        } else {
+            JointInfos {
+                joint_infos: vec![],
+                imats: vec![],
+                lmats: vec![],
+                joint_table: [255u8; 0x100],
+            }
+        };
 
         let mut parts_arr_bytes = vec![0u8; header.parts_num as usize * size_of::<PartsInfo>()];
         reader.seek(std::io::SeekFrom::Start(header.parts_info as u64))?;
@@ -413,6 +450,7 @@ impl ModelFile {
             boundary_infos,
             vertex_buf,
             index_buf,
+            joint_info,
         })
     }
 
@@ -438,6 +476,10 @@ impl ModelFile {
 
     pub fn boundary_infos(&self) -> &[BoundaryInfo] {
         &self.boundary_infos
+    }
+
+    pub fn joint_info(&self) -> &JointInfos {
+        &self.joint_info
     }
 }
 
