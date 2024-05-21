@@ -2,9 +2,6 @@
 #![allow(incomplete_features)]
 #![feature(generic_const_exprs)]
 
-pub mod crc;
-pub use crc::crc32;
-
 pub mod dti;
 pub use dti::generated as DTIs;
 pub use dti::DTI;

@@ -167,7 +167,7 @@ fn test_dti_eq() {
 
 #[test]
 fn test_dti_hashes() {
-    use crate::crc32;
+    use crate::util::crc32;
 
     // Make sure the hashes match up with the names
     for (hash, dti) in generated::DTI_MAP.entries() {

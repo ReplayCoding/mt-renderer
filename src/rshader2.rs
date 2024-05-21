@@ -344,7 +344,7 @@ impl Shader2File {
                 None
             };
 
-            let name_hash = crate::crc32(name.to_bytes(), 0xffff_ffff) & 0xfffff;
+            let name_hash = util::crc32(name.to_bytes(), 0xffff_ffff) & 0xfffff;
             debug!("object {:?} {:?} {}", name, object, object.obj_type());
 
             let annotations = if object.annotations != 0 {
