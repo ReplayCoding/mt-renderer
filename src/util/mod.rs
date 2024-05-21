@@ -1,4 +1,5 @@
 mod read_struct;
+mod hexdump;
 
 #[macro_export]
 macro_rules! get_enum_value {
@@ -13,3 +14,4 @@ macro_rules! get_enum_value {
 
 pub use get_enum_value;
 pub use read_struct::*;
+pub use hexdump::*;

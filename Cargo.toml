@@ -10,6 +10,7 @@ debug = false
 [dependencies]
 anyhow = "1.0.80"
 bitflags = "2.5.0"
+chrono = "0.4.38"
 encoding_rs = "0.8.34"
 env_logger = "0.11.2"
 flate2 = "1.0.28"

@@ -15,6 +15,7 @@ pub mod resource_manager;
 
 pub mod mtserializer;
 pub mod rarchive;
+pub mod rguimessage;
 pub mod rmaterial;
 pub mod rmodel;
 pub mod rshader2;
@@ -26,5 +27,5 @@ pub mod texture;
 
 pub mod util;
 
-pub mod debug_overlay;
 pub mod camera;
+pub mod debug_overlay;

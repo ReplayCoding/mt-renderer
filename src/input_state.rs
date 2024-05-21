@@ -1,7 +1,4 @@
-// TODO: rename to input_state/InputState
-
 use bitflags::bitflags;
-use log::trace;
 
 bitflags! {
     #[derive(Debug, Copy, Clone)]

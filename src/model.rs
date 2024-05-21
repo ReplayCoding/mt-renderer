@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::PathBuf};
 
-use log::{debug, info, trace};
+use log::{debug, trace};
 use wgpu::util::DeviceExt;
 use zerocopy::AsBytes;
 
