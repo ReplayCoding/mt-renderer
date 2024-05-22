@@ -331,7 +331,7 @@ impl Model {
             };
 
             // TODO: Are these bounds correct?
-            // XXX: What does vertex_ofs do
+            // TODO: What does vertex_ofs do
             let vertex_range = primitive.vertex_base() as u64
                 ..(primitive.vertex_base() + (primitive.vertex_num() * primitive.vertex_stride()))
                     as u64;

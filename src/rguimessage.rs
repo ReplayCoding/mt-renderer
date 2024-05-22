@@ -3,7 +3,7 @@ use std::{
     io::{Read, Seek},
 };
 
-use log::debug;
+use log::{debug, warn};
 use zerocopy::{FromBytes, FromZeroes};
 
 use crate::util;
@@ -34,7 +34,11 @@ struct GuiMessageIndex {
     hash_link: u64,
 }
 
-pub struct GuiMessageFile {}
+#[derive(Debug)]
+pub struct GuiMessageFile {
+    edit_time: chrono::DateTime<chrono::Utc>,
+    messages: Vec<String>,
+}
 
 impl GuiMessageFile {
     pub fn new<R: Read + Seek>(reader: &mut R) -> anyhow::Result<Self> {
@@ -61,7 +65,8 @@ impl GuiMessageFile {
         if header.index_num != 0 {
             let mut hash_table = vec![0u8; 0x800];
             reader.read_exact(&mut hash_table)?;
-            debug!("hash_table \n{}", util::hexdump(&hash_table));
+
+            // debug!("hash_table \n{}", util::hexdump(&hash_table));
         }
 
         let mut index_name_buf = vec![0u8; header.index_name_buf_size as usize];
@@ -71,17 +76,12 @@ impl GuiMessageFile {
         reader.read_exact(&mut message_buf)?;
 
         for item in &index {
-            let item_name = CStr::from_bytes_until_nul(&index_name_buf[item.offset as usize..])?;
-            assert_eq!((item.index & !0x7fff_ffff), 0); // hash collision marker i think.
-            assert_eq!({ item.hash_link }, 0);
+            // TODO: investigate how the index works, but i don't think it's necessary for now
 
-            debug!(
-                "index: {} {:?} hash a {:08x} b {:08x}",
-                { item.index },
-                item_name,
-                { item.hash_a },
-                { item.hash_b }
-            );
+            let _item_name = CStr::from_bytes_until_nul(&index_name_buf[item.offset as usize..])?;
+            if item.hash_link != 0 {
+                warn!("TODO: hash link for item is nonzero: {:?}", _item_name);
+            };
         }
 
         let mut messages: Vec<String> = vec![];
@@ -98,9 +98,10 @@ impl GuiMessageFile {
             current_message_data.push(*current_char);
         }
 
-        debug!("messages: {:#?}", messages);
-
-        Ok(Self {})
+        Ok(Self {
+            edit_time: edit_time.expect("failed to decode datetime"),
+            messages,
+        })
     }
 }
 

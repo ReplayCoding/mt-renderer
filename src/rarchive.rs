@@ -38,8 +38,7 @@ pub struct ResourceInfo {
     size_uncompressed: u32,
     offset: u32,
 
-    // TODO: what exactly does this do?
-    _quality: u8,
+    quality: u32,
 }
 impl ResourceInfo {
     pub fn path(&self) -> &Path {
@@ -101,7 +100,7 @@ impl<Backing: Read + Seek> ArchiveFile<Backing> {
                 dti,
                 size_compressed,
                 size_uncompressed,
-                _quality: quality as u8, // only 3 bits, so it's fine
+                quality,
                 offset,
             })
         }

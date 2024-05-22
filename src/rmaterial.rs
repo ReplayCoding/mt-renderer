@@ -274,6 +274,7 @@ impl MaterialFile {
                                 textures[(state.sh_value() - 1) as usize]
                             );
 
+                            // HACK
                             if state_sh_obj.name() == "tAlbedoMap" {
                                 albedo_texture_idx = Some((state.sh_value() - 1) as usize);
                             }
