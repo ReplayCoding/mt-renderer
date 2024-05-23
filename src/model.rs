@@ -282,7 +282,7 @@ impl Model {
                 .infos()
                 .iter()
                 .enumerate()
-                .map(|(idx, info)| {
+                .map(|(_idx, info)| {
                     let o = info.offset();
                     glam::vec3(o.x, o.y, o.z)
                 })

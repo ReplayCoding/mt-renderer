@@ -147,7 +147,7 @@ impl RendererApp for ModelViewerApp {
 
         model.set_parts_disp(&parts_disp);
 
-        let debug_overlay = DebugOverlay::new(device, queue, swapchain_format);
+        let debug_overlay = DebugOverlay::new(device, swapchain_format);
 
         Ok(ModelViewerApp {
             model,

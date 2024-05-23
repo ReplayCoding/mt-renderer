@@ -276,10 +276,10 @@ impl JointInfo {
 
 pub struct JointInfos {
     joint_infos: Vec<JointInfo>,
-    imats: Vec<MtMatrix>,
-    lmats: Vec<MtMatrix>,
+    _imats: Vec<MtMatrix>,
+    _lmats: Vec<MtMatrix>,
 
-    joint_table: [u8; 0x100],
+    _joint_table: [u8; 0x100],
 }
 
 impl JointInfos {
@@ -288,7 +288,7 @@ impl JointInfos {
     }
 
     pub fn imats(&self) -> &[MtMatrix] {
-        &self.imats
+        &self._imats
     }
 }
 
@@ -408,16 +408,16 @@ impl ModelFile {
 
             JointInfos {
                 joint_infos,
-                imats,
-                lmats,
-                joint_table,
+                _imats: imats,
+                _lmats: lmats,
+                _joint_table: joint_table,
             }
         } else {
             JointInfos {
                 joint_infos: vec![],
-                imats: vec![],
-                lmats: vec![],
-                joint_table: [255u8; 0x100],
+                _imats: vec![],
+                _lmats: vec![],
+                _joint_table: [255u8; 0x100],
             }
         };
 

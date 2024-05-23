@@ -36,8 +36,8 @@ struct GuiMessageIndex {
 
 #[derive(Debug)]
 pub struct GuiMessageFile {
-    edit_time: chrono::DateTime<chrono::Utc>,
-    messages: Vec<String>,
+    _edit_time: chrono::DateTime<chrono::Utc>,
+    _messages: Vec<String>,
 }
 
 impl GuiMessageFile {
@@ -99,8 +99,8 @@ impl GuiMessageFile {
         }
 
         Ok(Self {
-            edit_time: edit_time.expect("failed to decode datetime"),
-            messages,
+            _edit_time: edit_time.expect("failed to decode datetime"),
+            _messages: messages,
         })
     }
 }

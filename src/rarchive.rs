@@ -1,18 +1,27 @@
 use std::{
     ffi::{CStr, OsString},
-    io::{Cursor, Read, Seek},
+    io::{Cursor, Read, Seek, Write},
+    mem::size_of,
     path::{Path, PathBuf},
     sync::Mutex,
 };
 
-use flate2::read::ZlibDecoder;
+use flate2::{read::ZlibDecoder, write::ZlibEncoder};
 use log::{debug, trace};
-use zerocopy::{FromBytes, FromZeroes};
+use zerocopy::{AsBytes, FromBytes, FromZeroes};
 
 use crate::{util, DTI};
 
+const ARCHIVE_MAGIC: u32 = u32::from_be(0x41524300); // "ARC\0"
+const ARCHIVE_VERSION: u16 = 7;
+
+const ORGSIZE_MASK: u32 = 2_u32.pow(29) - 1;
+const QUALITY_MASK: u32 = 2_u32.pow(3) - 1;
+
+const PATH_MAXLEN: usize = 127;
+
 #[repr(C, packed)]
-#[derive(Debug, FromBytes, FromZeroes)]
+#[derive(Debug, FromBytes, FromZeroes, AsBytes)]
 struct ArchiveHeader {
     magic: u32,
     version: u16,
@@ -20,9 +29,9 @@ struct ArchiveHeader {
 }
 
 #[repr(C, packed)]
-#[derive(Debug, FromBytes, FromZeroes)]
+#[derive(Debug, FromBytes, FromZeroes, AsBytes)]
 struct RawResourceInfo {
-    path: [u8; 128],
+    path: [u8; PATH_MAXLEN + 1], // + null byte
     dti_type: u32,
     size_compressed: u32,
     // orgsize: 29, quality: 3
@@ -32,21 +41,26 @@ struct RawResourceInfo {
 
 #[derive(Debug)]
 pub struct ResourceInfo {
+    // TODO: this might be better off as a string
     path: PathBuf,
     dti: &'static DTI,
     size_compressed: u32,
     size_uncompressed: u32,
-    offset: u32,
 
     quality: u32,
+    offset: u32,
 }
 impl ResourceInfo {
     pub fn path(&self) -> &Path {
         &self.path
     }
 
-    pub fn dti(&self) -> &DTI {
+    pub fn dti(&self) -> &'static DTI {
         self.dti
+    }
+
+    pub fn quality(&self) -> u32 {
+        self.quality
     }
 }
 
@@ -61,9 +75,10 @@ impl<Backing: Read + Seek> ArchiveFile<Backing> {
 
         debug!("archive header: {:#?}", header);
 
-        assert_eq!(header.magic.to_ne_bytes(), "ARC\0".as_bytes());
+        assert_eq!({ header.magic }, ARCHIVE_MAGIC);
+        assert_eq!({ header.version }, ARCHIVE_VERSION);
 
-        let mut resources: Vec<ResourceInfo> = vec![];
+        let mut resources = vec![];
 
         for _ in 0..header.num_resources {
             let raw_resource_info: RawResourceInfo = util::read_struct(&mut reader)?;
@@ -78,10 +93,9 @@ impl<Backing: Read + Seek> ArchiveFile<Backing> {
             let dti = DTI::from_hash(raw_resource_info.dti_type).unwrap();
 
             let size_compressed = raw_resource_info.size_compressed;
-            let size_uncompressed =
-                raw_resource_info.bitfield_orgsize_quality & (2_u32.pow(29) - 1);
+            let size_uncompressed = raw_resource_info.bitfield_orgsize_quality & ORGSIZE_MASK;
 
-            let quality = (raw_resource_info.bitfield_orgsize_quality >> 29) & (2_u32.pow(3) - 1);
+            let quality = (raw_resource_info.bitfield_orgsize_quality >> 29) & QUALITY_MASK;
 
             let offset = raw_resource_info.offset;
 
@@ -120,6 +134,8 @@ impl<Backing: Read + Seek> ArchiveFile<Backing> {
     }
 
     pub fn get_resource(&self, path: &Path, dti: &DTI) -> anyhow::Result<Option<Vec<u8>>> {
+        trace!("getting resource {:?}", path);
+
         // hashmaps make everything go fast...
         let resource = self
             .resources
@@ -134,7 +150,7 @@ impl<Backing: Read + Seek> ArchiveFile<Backing> {
 
         let mut reader = self.reader.lock().unwrap();
 
-        reader.seek(std::io::SeekFrom::Start(resource.offset.into()))?;
+        reader.seek(std::io::SeekFrom::Start(resource.offset as u64))?;
 
         let mut content_compressed = vec![0u8; resource.size_compressed as usize];
         reader.read_exact(&mut content_compressed)?;
@@ -150,6 +166,121 @@ impl<Backing: Read + Seek> ArchiveFile<Backing> {
         assert_eq!(num_decompressed_bytes, resource.size_uncompressed as usize);
 
         Ok(Some(content_decompressed))
+    }
+}
+
+// TODO: can this be combined with ResourceInfo
+struct ArchiveResourceForWrite {
+    path: String,
+    quality: u32,
+    size_uncompressed: u32,
+
+    compressed_data: Vec<u8>,
+    dti: &'static DTI,
+}
+
+pub struct ArchiveWriter {
+    resources: Vec<ArchiveResourceForWrite>,
+}
+
+impl ArchiveWriter {
+    pub fn new() -> Self {
+        ArchiveWriter { resources: vec![] }
+    }
+
+    pub fn add_file(
+        &mut self,
+        path: &str,
+        dti: &'static DTI,
+        quality: u32,
+        data: &[u8],
+    ) -> anyhow::Result<()> {
+        let mut encoder = ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(data)?;
+
+        let compressed_data = encoder.finish()?;
+
+        let mut decoder = ZlibDecoder::new(Cursor::new(&compressed_data));
+        let mut out = vec![];
+        decoder.read_to_end(&mut out)?;
+
+        assert_eq!(out.len(), data.len());
+
+        trace!(
+            "adding file {} unc {} comp {}",
+            path,
+            data.len(),
+            compressed_data.len()
+        );
+
+        self.resources.push(ArchiveResourceForWrite {
+            path: path.to_string(),
+            quality,
+            dti,
+
+            compressed_data,
+            size_uncompressed: data
+                .len()
+                .try_into()
+                .expect("resource size doesn't fit into u32"),
+        });
+
+        Ok(())
+    }
+
+    pub fn save<W: Write>(&self, writer: &mut W) -> anyhow::Result<()> {
+        let header = ArchiveHeader {
+            magic: ARCHIVE_MAGIC,
+            version: ARCHIVE_VERSION,
+            num_resources: self.resources.len().try_into().unwrap(),
+        };
+
+        writer.write_all(header.as_bytes())?;
+
+        let start_offset =
+            size_of::<ArchiveHeader>() + (self.resources.len() * size_of::<RawResourceInfo>());
+        let mut offset: u32 = start_offset.try_into().unwrap();
+
+        for resource in &self.resources {
+            trace!(
+                "writing resource info: path {} comp {} unc {} quality {} dti {}",
+                resource.path,
+                resource.compressed_data.len(),
+                resource.size_uncompressed,
+                resource.quality,
+                resource.dti.name()
+            );
+
+            assert!(resource.size_uncompressed <= ORGSIZE_MASK);
+            assert!(resource.quality <= QUALITY_MASK);
+
+            let bitfield_orgsize_quality = (resource.size_uncompressed & ORGSIZE_MASK)
+                | ((resource.quality & QUALITY_MASK) << 29);
+
+            let mut path_bytes = resource.path.as_bytes().to_vec();
+            assert!(path_bytes.len() <= PATH_MAXLEN);
+
+            path_bytes.resize(PATH_MAXLEN + 1, 0);
+
+            let size_compressed = resource.compressed_data.len().try_into().unwrap();
+            let info = RawResourceInfo {
+                path: path_bytes.try_into().unwrap(),
+                dti_type: resource.dti.hash(),
+                size_compressed,
+                bitfield_orgsize_quality,
+                offset,
+            };
+
+            offset += size_compressed;
+
+            writer.write_all(info.as_bytes())?;
+        }
+
+        for resource in &self.resources {
+            writer.write_all(&resource.compressed_data)?;
+        }
+
+        Ok(())
     }
 }
 

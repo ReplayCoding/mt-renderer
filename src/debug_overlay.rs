@@ -54,7 +54,6 @@ impl DebugOverlay {
 
     pub fn new(
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
         swapchain_format: wgpu::TextureFormat,
     ) -> Self {
         let cube_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
