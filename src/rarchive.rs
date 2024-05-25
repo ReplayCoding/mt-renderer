@@ -1,8 +1,8 @@
 use std::{
-    ffi::{CStr, OsString},
+    ffi::CStr,
     io::{Cursor, Read, Seek, Write},
     mem::size_of,
-    path::{Path, PathBuf},
+    path::Path,
     sync::Mutex,
 };
 
@@ -41,8 +41,7 @@ struct RawResourceInfo {
 
 #[derive(Debug)]
 pub struct ResourceInfo {
-    // TODO: this might be better off as a string
-    path: PathBuf,
+    path: String,
     dti: &'static DTI,
     size_compressed: u32,
     size_uncompressed: u32,
@@ -51,7 +50,7 @@ pub struct ResourceInfo {
     offset: u32,
 }
 impl ResourceInfo {
-    pub fn path(&self) -> &Path {
+    pub fn path(&self) -> &str {
         &self.path
     }
 
@@ -83,12 +82,9 @@ impl<Backing: Read + Seek> ArchiveFile<Backing> {
         for _ in 0..header.num_resources {
             let raw_resource_info: RawResourceInfo = util::read_struct(&mut reader)?;
 
-            let path = PathBuf::from(OsString::from(
-                CStr::from_bytes_until_nul(&raw_resource_info.path)?
-                    .to_string_lossy()
-                    .to_string() // lol
-                    .replace('\\', "/"),
-            ));
+            let path = CStr::from_bytes_until_nul(&raw_resource_info.path)?
+                .to_string_lossy()
+                .to_string();
 
             let dti = DTI::from_hash(raw_resource_info.dti_type).unwrap();
 
@@ -133,7 +129,17 @@ impl<Backing: Read + Seek> ArchiveFile<Backing> {
         self.get_resource(&info.path, info.dti)
     }
 
-    pub fn get_resource(&self, path: &Path, dti: &DTI) -> anyhow::Result<Option<Vec<u8>>> {
+    pub fn get_resource_with_path(
+        &self,
+        path: &Path,
+        dti: &DTI,
+    ) -> anyhow::Result<Option<Vec<u8>>> {
+        let path = path.to_string_lossy().replace("/", "\\");
+
+        self.get_resource(&path, dti)
+    }
+
+    pub fn get_resource(&self, path: &str, dti: &DTI) -> anyhow::Result<Option<Vec<u8>>> {
         trace!("getting resource {:?}", path);
 
         // hashmaps make everything go fast...

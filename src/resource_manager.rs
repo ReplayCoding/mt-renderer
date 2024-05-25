@@ -97,7 +97,7 @@ impl ResourceManager {
             Ok(Resource(ResourceInner::FileBacked(BufReader::new(file))))
         } else {
             for archive in self.loaded_archives.values() {
-                if let Some(resource_data) = archive.get_resource(path, dti)? {
+                if let Some(resource_data) = archive.get_resource_with_path(path, dti)? {
                     return Ok(Resource(ResourceInner::ArchiveBacked(Cursor::new(
                         resource_data,
                     ))));
