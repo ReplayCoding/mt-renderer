@@ -109,12 +109,11 @@ impl SchedulerFile {
             let prop_type = dti::PropType::from_repr(track.prop_type().into()).unwrap(); // TODO: move this down
 
             debug!(
-                "track type {:?} ptype {:?} keynum {} prop/track name {:?} \n{:?}",
+                "track type {:?} ptype {:?} keynum {} prop/track name {:?}",
                 track_type,
                 prop_type,
                 { track.key_num() },
                 name,
-                track
             );
 
             match track_type {
@@ -122,7 +121,7 @@ impl SchedulerFile {
 
                 SchedulerTrackType::TYPE_UNIT | SchedulerTrackType::TYPE_SYSTEM => {
                     let dti = DTI::from_hash(track.field_10);
-                    debug!("dti {:?}", dti.map(|d| d.name()));
+                    debug!("\tdti {:?}", dti.map(|d| d.name()));
                 }
 
                 SchedulerTrackType::TYPE_INT
@@ -145,19 +144,23 @@ impl SchedulerFile {
                     for (idx, info) in frame_infos.enumerate() {
                         let info = info.unwrap();
                         debug!(
-                            "frame no {} mode {:x}",
+                            "\tframe no {} mode {:x}",
                             (info & 0xffffff),
                             (info >> 24) & 0xff
                         );
 
-                        match prop_type {
-                            dti::PropType::bool => {
-                                debug!("value: {}", frame_values_bytes[idx]);
+                        // hmmm... should we be matching on this or track type?
+                        match track_type {
+                            SchedulerTrackType::TYPE_BOOL => {
+                                assert_eq!(prop_type, dti::PropType::bool); // HACK
+                                debug!("\t\tvalue: {}", frame_values_bytes[idx]);
                             }
-                            dti::PropType::u32 => {
+
+                            SchedulerTrackType::TYPE_INT => {
+                                // assert_eq!(prop_type, dti::PropType::u32); // HACK TODO typecasts
                                 let offs = idx * size_of::<u32>();
                                 debug!(
-                                    "value: {}",
+                                    "\t\tvalue: {}",
                                     u32::from_le_bytes(
                                         frame_values_bytes[offs..offs + size_of::<u32>()]
                                             .try_into()
@@ -165,7 +168,43 @@ impl SchedulerFile {
                                     )
                                 );
                             }
-                            _ => todo!("handle prop type {:?}", prop_type),
+
+                            SchedulerTrackType::TYPE_FLOAT => {
+                                assert_eq!(prop_type, dti::PropType::f32); // HACK
+                                let offs = idx * size_of::<f32>();
+                                debug!(
+                                    "\t\tvalue: {}",
+                                    f32::from_le_bytes(
+                                        frame_values_bytes[offs..offs + size_of::<f32>()]
+                                            .try_into()
+                                            .unwrap()
+                                    )
+                                );
+                            }
+
+                            SchedulerTrackType::TYPE_RESOURCE => {
+                                let ptr_offs = idx * size_of::<u64>();
+                                let ptr = u64::from_le_bytes(
+                                    frame_values_bytes[ptr_offs..ptr_offs + size_of::<u64>()]
+                                        .try_into()
+                                        .unwrap(),
+                                );
+
+                                if ptr != 0 {
+                                    let dti_offs = (header.metadata + ptr) as usize;
+                                    let dti = u32::from_le_bytes(
+                                        file_data[dti_offs..dti_offs + size_of::<u32>()]
+                                            .try_into()
+                                            .unwrap(),
+                                    );
+
+                                    let path_bytes = &file_data[dti_offs + size_of::<u32>()..];
+                                    let path = CStr::from_bytes_until_nul(path_bytes)?;
+
+                                    debug!("\t\tvalue: resource {} {:?}", dti, path);
+                                }
+                            }
+                            _ => todo!("handle type {:?}", track_type),
                         }
                     }
                 }

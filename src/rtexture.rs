@@ -88,7 +88,12 @@ impl TextureHeader {
         (self.bitfield_c >> 8) & 0xff
     }
     fn format(&self) -> FormatType {
-        FormatType::from_repr(self.format_raw()).unwrap()
+        if let Some(format) = FormatType::from_repr(self.format_raw()) {
+            format
+        }
+        else {
+            todo!("handle format {:#?}", self.format_raw());
+        }
     }
     fn array_count(&self) -> u32 {
         self.bitfield_c & 0xff

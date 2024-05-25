@@ -1,7 +1,7 @@
 include!(concat!(env!("OUT_DIR"), "/dti_generated.rs"));
 
 #[allow(non_camel_case_types)]
-#[derive(strum::FromRepr, Debug)]
+#[derive(strum::FromRepr, Debug, PartialEq)]
 #[repr(u32)]
 pub enum PropType {
     undefined = 0,
