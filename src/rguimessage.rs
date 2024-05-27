@@ -1,6 +1,6 @@
 use std::{
     ffi::CStr,
-    io::{Read, Seek},
+    io::{Read, Seek}, mem::size_of,
 };
 
 use log::{debug, warn};
@@ -20,7 +20,7 @@ struct GuiMessageHeader {
     index_name_buf_size: u32,
     message_buffer_size: u32,
 
-    unk_size: u32,
+    package_name_len: u32,
 }
 
 #[repr(C, packed)]
@@ -30,6 +30,7 @@ struct GuiMessageIndex {
     hash_a: u32,
     hash_b: u32,
     padding: u32,
+
     offset: u64,
     hash_link: u64,
 }
@@ -52,7 +53,7 @@ impl GuiMessageFile {
         let edit_time = chrono::DateTime::from_timestamp(header.update_time as i64, 0);
         debug!("edit time: {:?}", edit_time.map(|e| e.to_rfc2822()));
 
-        let mut package_name_buf = vec![0u8; (header.unk_size + 1) as usize];
+        let mut package_name_buf = vec![0u8; (header.package_name_len + 1) as usize];
         reader.read_exact(&mut package_name_buf)?;
         let package_name = CStr::from_bytes_until_nul(&package_name_buf)?;
         debug!("package name {:#?}", package_name);
@@ -76,12 +77,7 @@ impl GuiMessageFile {
         reader.read_exact(&mut message_buf)?;
 
         for item in &index {
-            // TODO: investigate how the index works, but i don't think it's necessary for now
-
-            let _item_name = CStr::from_bytes_until_nul(&index_name_buf[item.offset as usize..])?;
-            if item.hash_link != 0 {
-                warn!("TODO: hash link for item is nonzero: {:?}", _item_name);
-            };
+            parse_index_item(&index, item, &index_name_buf)?;
         }
 
         let mut messages: Vec<String> = vec![];
@@ -105,9 +101,34 @@ impl GuiMessageFile {
     }
 }
 
+fn parse_index_item(index: &[GuiMessageIndex], item: &GuiMessageIndex, index_name_buf: &[u8]) -> Result<(), anyhow::Error> {
+    let _item_name = CStr::from_bytes_until_nul(&index_name_buf[item.offset as usize..])?;
+    let hash = util::crc32(_item_name.to_bytes(), 0xffff_ffff);
+    let hash_a = util::crc32(_item_name.to_bytes(), hash);
+    let hash_b = util::crc32(_item_name.to_bytes(), hash_a);
+    assert_eq!({ item.hash_a }, hash_a);
+    assert_eq!({ item.hash_b }, hash_b);
+    debug!("item: idx {} name {_item_name:?}", { item.index });
+    if item.hash_link != 0 {
+        assert_ne!({ item.hash_link }, -1i64 as u64); //hmmmm
+
+
+        warn!(
+            "TODO: hash link for item is nonzero: {:?} {}",
+            _item_name,
+            { item.hash_link }
+        );
+
+        let link_idx = item.hash_link as usize / size_of::<GuiMessageIndex>();
+        parse_index_item(index, &index[link_idx], index_name_buf)?;
+
+        debug!("done link");
+    };
+
+    Ok(())
+}
+
 #[test]
 fn test_struct_sizes() {
-    use std::mem::size_of;
-
     assert_eq!(size_of::<GuiMessageIndex>(), 1 << 5);
 }

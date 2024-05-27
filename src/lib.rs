@@ -1,7 +1,3 @@
-// Used by read_struct in util/read_struct.rs
-#![allow(incomplete_features)]
-#![feature(generic_const_exprs)]
-
 pub mod dti;
 pub use dti::generated as DTIs;
 pub use dti::DTI;

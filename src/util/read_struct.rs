@@ -1,15 +1,17 @@
 use std::{ffi::CStr, io::Read, mem::size_of};
 
 use anyhow::anyhow;
+use encoding_rs::SHIFT_JIS;
 use zerocopy::FromBytes;
 
 pub fn read_struct<S, R>(reader: &mut R) -> anyhow::Result<S>
 where
     R: Read,
     S: FromBytes,
-    [u8; std::mem::size_of::<S>()]:, // wtf
+    // [u8; std::mem::size_of::<S>()]:, // wtf
 {
-    let mut bytes = [0u8; std::mem::size_of::<S>()];
+    // TOOD: make this a slice when that stupid feature (generic_const_exprs) gets stabilized
+    let mut bytes = vec![0u8; std::mem::size_of::<S>()];
     reader.read_exact(&mut bytes)?;
 
     S::read_from(&bytes).ok_or_else(|| anyhow!("couldn't read struct!"))
@@ -76,7 +78,9 @@ pub fn read_null_terminated_string<R: Read>(
         v.push(current_byte);
     }
 
-    Ok(CStr::from_bytes_until_nul(&v)?
-        .to_string_lossy()
-        .to_string())
+    let bytes = CStr::from_bytes_until_nul(&v)?;
+
+    let (decoded, _, _) = SHIFT_JIS.decode(&bytes.to_bytes());
+
+    Ok(decoded.to_string())
 }
