@@ -7,7 +7,7 @@ fn main() -> anyhow::Result<()> {
     let mut file = std::fs::File::open(&args[1])?;
     let gmd = GuiMessageFile::new(&mut file)?;
 
-    println!("{:#?}", gmd);
+    println!("{}", serde_json::to_string_pretty(&gmd)?);
 
     Ok(())
 }

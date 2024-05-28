@@ -1,9 +1,10 @@
 use std::{
     ffi::CStr,
-    io::{Read, Seek}, mem::size_of,
+    io::{Read, Seek},
 };
 
-use log::{debug, warn};
+use log::debug;
+use serde::{Deserialize, Serialize};
 use zerocopy::{FromBytes, FromZeroes};
 
 use crate::util;
@@ -25,20 +26,28 @@ struct GuiMessageHeader {
 
 #[repr(C, packed)]
 #[derive(Debug, FromBytes, FromZeroes, Clone)]
-struct GuiMessageIndex {
-    index: u32,
+struct RawGuiMessageIndexItem {
+    message_index: u32,
     hash_a: u32,
     hash_b: u32,
     padding: u32,
 
-    offset: u64,
+    label_offset: u64,
+    // NOTE: 0 is already used for nullptr, so -1 marks the 0th index
     hash_link: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
+struct GuiMessageIndexItem {
+    label: String,
+    // NOTE: this is assuming that no items have duplicate message indices, which is theoretically possible
+    message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct GuiMessageFile {
-    _edit_time: chrono::DateTime<chrono::Utc>,
-    _messages: Vec<String>,
+    edit_time: chrono::DateTime<chrono::Utc>,
+    messages: Vec<GuiMessageIndexItem>,
 }
 
 impl GuiMessageFile {
@@ -58,16 +67,14 @@ impl GuiMessageFile {
         let package_name = CStr::from_bytes_until_nul(&package_name_buf)?;
         debug!("package name {:#?}", package_name);
 
-        let index = util::read_struct_array_stream::<GuiMessageIndex, _>(
+        let index = util::read_struct_array_stream::<RawGuiMessageIndexItem, _>(
             reader,
             header.index_num as usize,
         )?;
 
         if header.index_num != 0 {
-            let mut hash_table = vec![0u8; 0x800];
-            reader.read_exact(&mut hash_table)?;
-
-            // debug!("hash_table \n{}", util::hexdump(&hash_table));
+            let hash_table = util::read_struct_array_stream::<u64, _>(reader, 256)?;
+            debug!("hash_table \n{:016x?}", hash_table);
         }
 
         let mut index_name_buf = vec![0u8; header.index_name_buf_size as usize];
@@ -76,17 +83,13 @@ impl GuiMessageFile {
         let mut message_buf = vec![0u8; header.message_buffer_size as usize];
         reader.read_exact(&mut message_buf)?;
 
-        for item in &index {
-            parse_index_item(&index, item, &index_name_buf)?;
-        }
-
         let mut messages: Vec<String> = vec![];
 
         let mut current_message_data = vec![];
         for current_char in &message_buf {
             if *current_char == 0 {
                 let old = std::mem::take(&mut current_message_data);
-                messages.push(String::from_utf8(old)?); // TODO: is it actually utf8?
+                messages.push(String::from_utf8(old)?); // TODO: is it actually utf8? seems to be in DGS1 on 3DS
 
                 continue;
             }
@@ -94,41 +97,34 @@ impl GuiMessageFile {
             current_message_data.push(*current_char);
         }
 
+        let messages_index_mapped =  index.iter().enumerate().map(|(item_idx, item)| {
+            let index_name_buf: &[u8] = &index_name_buf;
+            let item_name =
+                CStr::from_bytes_until_nul(&index_name_buf[item.label_offset as usize..])?;
+
+            let hash = util::crc32(item_name.to_bytes(), 0xffff_ffff);
+            let hash_a = util::crc32(item_name.to_bytes(), hash);
+            let hash_b = util::crc32(item_name.to_bytes(), hash_a);
+            assert_eq!({ item.hash_a }, hash_a);
+            assert_eq!({ item.hash_b }, hash_b);
+            debug!("item {item_idx}: message index {} name {item_name:?} hash {:02x} hasha {hash_a:08x} hashb {hash_b:08x} link idx {}", { item.message_index }, hash & 0xff, {item.hash_link});
+
+            Ok(GuiMessageIndexItem {
+                label: String::from_utf8(item_name.to_bytes().to_vec())?,
+                message: messages[item.message_index as usize].clone(),
+            })
+        }).collect::<anyhow::Result<Vec<GuiMessageIndexItem>>>()?;
+
         Ok(Self {
-            _edit_time: edit_time.expect("failed to decode datetime"),
-            _messages: messages,
+            edit_time: edit_time.expect("failed to decode datetime"),
+            messages: messages_index_mapped,
         })
     }
 }
 
-fn parse_index_item(index: &[GuiMessageIndex], item: &GuiMessageIndex, index_name_buf: &[u8]) -> Result<(), anyhow::Error> {
-    let _item_name = CStr::from_bytes_until_nul(&index_name_buf[item.offset as usize..])?;
-    let hash = util::crc32(_item_name.to_bytes(), 0xffff_ffff);
-    let hash_a = util::crc32(_item_name.to_bytes(), hash);
-    let hash_b = util::crc32(_item_name.to_bytes(), hash_a);
-    assert_eq!({ item.hash_a }, hash_a);
-    assert_eq!({ item.hash_b }, hash_b);
-    debug!("item: idx {} name {_item_name:?}", { item.index });
-    if item.hash_link != 0 {
-        assert_ne!({ item.hash_link }, -1i64 as u64); //hmmmm
-
-
-        warn!(
-            "TODO: hash link for item is nonzero: {:?} {}",
-            _item_name,
-            { item.hash_link }
-        );
-
-        let link_idx = item.hash_link as usize / size_of::<GuiMessageIndex>();
-        parse_index_item(index, &index[link_idx], index_name_buf)?;
-
-        debug!("done link");
-    };
-
-    Ok(())
-}
-
 #[test]
 fn test_struct_sizes() {
-    assert_eq!(size_of::<GuiMessageIndex>(), 1 << 5);
+    use std::mem::size_of;
+
+    assert_eq!(size_of::<RawGuiMessageIndexItem>(), 1 << 5);
 }
