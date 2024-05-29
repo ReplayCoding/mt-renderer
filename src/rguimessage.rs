@@ -1,16 +1,18 @@
 use std::{
     ffi::CStr,
-    io::{Read, Seek},
+    io::{Read, Write},
 };
 
 use log::debug;
 use serde::{Deserialize, Serialize};
-use zerocopy::{FromBytes, FromZeroes};
+use zerocopy::{AsBytes, FromBytes, FromZeroes};
 
 use crate::util;
 
+const HASH_TABLE_LEN: usize = 256;
+
 #[repr(C, packed)]
-#[derive(Debug, FromBytes, FromZeroes)]
+#[derive(Debug, FromBytes, FromZeroes, AsBytes)]
 struct GuiMessageHeader {
     magic: u32,
     version: u32,
@@ -25,7 +27,7 @@ struct GuiMessageHeader {
 }
 
 #[repr(C, packed)]
-#[derive(Debug, FromBytes, FromZeroes, Clone)]
+#[derive(Debug, FromBytes, FromZeroes, AsBytes, Clone)]
 struct RawGuiMessageIndexItem {
     message_index: u32,
     hash_a: u32,
@@ -46,12 +48,15 @@ struct GuiMessageIndexItem {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GuiMessageFile {
-    edit_time: chrono::DateTime<chrono::Utc>,
+    update_time: chrono::DateTime<chrono::Utc>,
+    language_id: u32,
+    package_name: String,
+
     messages: Vec<GuiMessageIndexItem>,
 }
 
 impl GuiMessageFile {
-    pub fn new<R: Read + Seek>(reader: &mut R) -> anyhow::Result<Self> {
+    pub fn new<R: Read>(reader: &mut R) -> anyhow::Result<Self> {
         let header = util::read_struct::<GuiMessageHeader, _>(reader)?;
         debug!("header {:#?}", header);
 
@@ -59,8 +64,8 @@ impl GuiMessageFile {
         assert_eq!({ header.version }, 0x10302);
 
         // TODO: is this correct? dates seem to line up with original development...
-        let edit_time = chrono::DateTime::from_timestamp(header.update_time as i64, 0);
-        debug!("edit time: {:?}", edit_time.map(|e| e.to_rfc2822()));
+        let update_time = chrono::DateTime::from_timestamp(header.update_time as i64, 0);
+        debug!("update time: {:?}", update_time.map(|e| e.to_rfc2822()));
 
         let mut package_name_buf = vec![0u8; (header.package_name_len + 1) as usize];
         reader.read_exact(&mut package_name_buf)?;
@@ -73,7 +78,7 @@ impl GuiMessageFile {
         )?;
 
         if header.index_num != 0 {
-            let hash_table = util::read_struct_array_stream::<u64, _>(reader, 256)?;
+            let hash_table = util::read_struct_array_stream::<u64, _>(reader, HASH_TABLE_LEN)?;
             debug!("hash_table \n{:016x?}", hash_table);
         }
 
@@ -116,9 +121,87 @@ impl GuiMessageFile {
         }).collect::<anyhow::Result<Vec<GuiMessageIndexItem>>>()?;
 
         Ok(Self {
-            edit_time: edit_time.expect("failed to decode datetime"),
+            update_time: update_time.expect("failed to decode datetime"),
             messages: messages_index_mapped,
+            language_id: header.language_id,
+            package_name: String::from_utf8(package_name.to_bytes().to_vec())?,
         })
+    }
+
+    pub fn save<W: Write>(&self, writer: &mut W) -> anyhow::Result<()> {
+        // build message & label buffers
+        let mut label_offsets = vec![0];
+        let mut current_label_offset = 0;
+
+        let mut label_buf: Vec<u8> = vec![];
+        let mut message_buf: Vec<u8> = vec![];
+
+        for message in &self.messages {
+            let label_bytes = message.label.as_bytes();
+            label_buf.extend_from_slice(label_bytes);
+            label_buf.push(0); // nullbyte
+
+            current_label_offset += label_bytes.len() + 1; // + null
+            label_offsets.push(current_label_offset);
+
+            message_buf.extend_from_slice(message.message.as_bytes());
+            message_buf.push(0); // nullbyte
+        }
+
+        // build index & hash table
+        let mut hash_table = [0u64; HASH_TABLE_LEN];
+        let mut index = vec![];
+        for (idx, message) in self.messages.iter().enumerate() {
+            let label_bytes = message.label.as_bytes();
+
+            let hash = util::crc32(label_bytes, 0xffff_ffff);
+            let hash_a = util::crc32(label_bytes, hash);
+            let hash_b = util::crc32(label_bytes, hash_a);
+
+            let truncated_hash = hash & 0xff;
+
+            if hash_table[truncated_hash as usize] != 0 {
+                todo!("handle hash collision");
+            }
+
+            hash_table[truncated_hash as usize] = if idx != 0 { idx as u64 } else { -1_i64 as u64 };
+
+            index.push(RawGuiMessageIndexItem {
+                message_index: idx as u32,
+                hash_a,
+                hash_b,
+                padding: 0xcdcdcdcd,
+                label_offset: label_offsets[idx] as u64,
+                hash_link: 0, // TODO
+            });
+        }
+
+        let header = GuiMessageHeader {
+            magic: u32::from_ne_bytes("GMD\0".as_bytes().try_into().unwrap()),
+            version: 0x10302,
+            language_id: self.language_id,
+            update_time: self.update_time.timestamp() as u64,
+            index_num: self.messages.len() as u32,
+            message_num: self.messages.len() as u32,
+            index_name_buf_size: label_buf.len() as u32,
+            message_buffer_size: message_buf.len() as u32,
+            package_name_len: self.package_name.len() as u32,
+        };
+
+        writer.write_all(header.as_bytes())?;
+        writer.write_all(self.package_name.as_bytes())?;
+        writer.write_all(&[0])?; // nullbyte
+
+        for item in index {
+            writer.write_all(item.as_bytes())?;
+        }
+
+        writer.write_all(hash_table.as_bytes())?;
+
+        writer.write_all(&label_buf)?;
+        writer.write_all(&message_buf)?;
+
+        Ok(())
     }
 }
 
