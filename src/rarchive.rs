@@ -8,6 +8,7 @@ use std::{
 
 use flate2::{read::ZlibDecoder, write::ZlibEncoder};
 use log::{debug, trace};
+use rayon::prelude::*;
 use zerocopy::{AsBytes, FromBytes, FromZeroes};
 
 use crate::{util, DTI};
@@ -179,9 +180,8 @@ impl<Backing: Read + Seek> ArchiveFile<Backing> {
 struct ArchiveResourceForWrite {
     path: String,
     quality: u32,
-    size_uncompressed: u32,
 
-    compressed_data: Vec<u8>,
+    data: Vec<u8>,
     dti: &'static DTI,
 }
 
@@ -201,34 +201,12 @@ impl ArchiveWriter {
         quality: u32,
         data: &[u8],
     ) -> anyhow::Result<()> {
-        let mut encoder = ZlibEncoder::new(Vec::new(), flate2::Compression::default());
-        encoder.write_all(data)?;
-
-        let compressed_data = encoder.finish()?;
-
-        let mut decoder = ZlibDecoder::new(Cursor::new(&compressed_data));
-        let mut out = vec![];
-        decoder.read_to_end(&mut out)?;
-
-        assert_eq!(out.len(), data.len());
-
-        trace!(
-            "adding file {} unc {} comp {}",
-            path,
-            data.len(),
-            compressed_data.len()
-        );
-
         self.resources.push(ArchiveResourceForWrite {
             path: path.to_string(),
             quality,
             dti,
 
-            compressed_data,
-            size_uncompressed: data
-                .len()
-                .try_into()
-                .expect("resource size doesn't fit into u32"),
+            data: data.to_vec(),
         });
 
         Ok(())
@@ -247,20 +225,32 @@ impl ArchiveWriter {
             size_of::<ArchiveHeader>() + (self.resources.len() * size_of::<RawResourceInfo>());
         let mut offset: u32 = start_offset.try_into().unwrap();
 
-        for resource in &self.resources {
+        let compressed_datas: Vec<Vec<u8>> = self
+            .resources
+            .par_iter()
+            .map(|resource| {
+                let data: &[u8] = &resource.data;
+                let mut encoder = ZlibEncoder::new(Vec::new(), flate2::Compression::default()); // TODO: make level configurable
+                encoder.write_all(data)?;
+
+                Ok(encoder.finish()?)
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        for (resource, compressed_data) in self.resources.iter().zip(&compressed_datas) {
             trace!(
                 "writing resource info: path {} comp {} unc {} quality {} dti {}",
                 resource.path,
-                resource.compressed_data.len(),
-                resource.size_uncompressed,
+                compressed_data.len(),
+                resource.data.len(),
                 resource.quality,
                 resource.dti.name()
             );
 
-            assert!(resource.size_uncompressed <= ORGSIZE_MASK);
+            assert!(ORGSIZE_MASK >= resource.data.len().try_into().unwrap());
             assert!(resource.quality <= QUALITY_MASK);
 
-            let bitfield_orgsize_quality = (resource.size_uncompressed & ORGSIZE_MASK)
+            let bitfield_orgsize_quality = (resource.data.len() as u32 & ORGSIZE_MASK)
                 | ((resource.quality & QUALITY_MASK) << 29);
 
             let mut path_bytes = resource.path.as_bytes().to_vec();
@@ -268,7 +258,7 @@ impl ArchiveWriter {
 
             path_bytes.resize(PATH_MAXLEN + 1, 0);
 
-            let size_compressed = resource.compressed_data.len().try_into().unwrap();
+            let size_compressed = compressed_data.len().try_into().unwrap();
             let info = RawResourceInfo {
                 path: path_bytes.try_into().unwrap(),
                 dti_type: resource.dti.hash(),
@@ -282,8 +272,8 @@ impl ArchiveWriter {
             writer.write_all(info.as_bytes())?;
         }
 
-        for resource in &self.resources {
-            writer.write_all(&resource.compressed_data)?;
+        for data in &compressed_datas {
+            writer.write_all(&data)?;
         }
 
         Ok(())
