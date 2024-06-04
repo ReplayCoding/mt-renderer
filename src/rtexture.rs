@@ -6,25 +6,6 @@ use zerocopy::{FromBytes, FromZeroes};
 use crate::util;
 
 #[repr(u32)]
-#[derive(strum::FromRepr, Debug, Copy, Clone)]
-#[allow(non_camel_case_types, unused)]
-pub enum FormatType {
-    FORMAT_R8G8B8A8_UNORM = 7,
-    FORMAT_BC1_UNORM = 19,
-    FORMAT_BC7_UNORM = 54,
-}
-
-impl FormatType {
-    pub fn wgpu_type(&self) -> wgpu::TextureFormat {
-        match self {
-            Self::FORMAT_BC1_UNORM => wgpu::TextureFormat::Bc1RgbaUnorm,
-            Self::FORMAT_R8G8B8A8_UNORM => wgpu::TextureFormat::Rgba8Unorm,
-            Self::FORMAT_BC7_UNORM => wgpu::TextureFormat::Bc7RgbaUnorm,
-        }
-    }
-}
-
-#[repr(u32)]
 #[derive(strum::FromRepr, Debug, PartialEq, Eq)]
 #[allow(non_camel_case_types, unused)]
 enum TextureType {
@@ -87,14 +68,7 @@ impl TextureHeader {
     fn format_raw(&self) -> u32 {
         (self.bitfield_c >> 8) & 0xff
     }
-    fn format(&self) -> FormatType {
-        if let Some(format) = FormatType::from_repr(self.format_raw()) {
-            format
-        }
-        else {
-            todo!("handle format {:#?}", self.format_raw());
-        }
-    }
+
     fn array_count(&self) -> u32 {
         self.bitfield_c & 0xff
     }
@@ -106,7 +80,7 @@ impl TextureHeader {
 pub struct TextureFile {
     width: u32,
     height: u32,
-    format: FormatType,
+    format: u32,
 
     data: Vec<u8>,
 }
@@ -117,13 +91,12 @@ impl TextureFile {
 
         debug!("HEADER: {:#x?}", header);
         debug!(
-            "v: {:04x} pb: {} w: {} h: {} t: {:?} f: {:?} ({}) ac: {} lc: {}",
+            "v: {:04x} pb: {} w: {} h: {} t: {:?} f: 0x{:x} ac: {} lc: {}",
             header.version(),
             header.prebias(),
             header.width(),
             header.height(),
             header.image_type(),
-            header.format(),
             header.format_raw(),
             header.array_count(),
             header.level_count(),
@@ -159,7 +132,7 @@ impl TextureFile {
         Ok(Self {
             width: header.width(),
             height: header.height(),
-            format: header.format(),
+            format: header.format_raw(),
             data: image_data,
         })
     }
@@ -172,8 +145,18 @@ impl TextureFile {
         self.height
     }
 
-    pub fn format(&self) -> FormatType {
+    pub fn format(&self) -> u32 {
         self.format
+    }
+
+    pub fn format_wgpu(&self) -> wgpu::TextureFormat {
+        match self.format() {
+            7 => wgpu::TextureFormat::Rgba8Unorm,
+            19 => wgpu::TextureFormat::Bc1RgbaUnorm,
+            54 => wgpu::TextureFormat::Bc7RgbaUnorm,
+            42 => wgpu::TextureFormat::Bc7RgbaUnorm,
+            _ => todo!("unhandled texture format: {}", self.format()),
+        }
     }
 
     pub fn data(&self) -> &[u8] {

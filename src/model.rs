@@ -62,14 +62,15 @@ impl Model {
             .iter()
             .map(|name| {
                 let info = material_file.material_by_name(name)?;
+                return info.albedo_texture_idx();
 
                 // HACK: This is awful and stupid. But i need a proper way of
                 // handling materials before i can do anything about it
-                if info.mat_type().name() == "nDraw::MaterialToon" {
-                    info.albedo_texture_idx()
-                } else {
-                    None
-                }
+                // if info.mat_type().name() == "nDraw::MaterialToon" {
+                //     info.albedo_texture_idx()
+                // } else {
+                //     None
+                // }
             })
             .collect();
 
@@ -121,12 +122,13 @@ impl Model {
         let primitives: Vec<_> = model_file
             .primitives()
             .iter()
-            .filter(|prim| {
+            .filter(|_prim| {
                 if true {
                     // HACK
-                    let mat_name = &model_file.material_names()[prim.material_no() as usize];
-                    let mat_info = material_file.material_by_name(mat_name).unwrap();
-                    mat_info.mat_type().name() == "nDraw::MaterialToon"
+                    // let mat_name = &model_file.material_names()[prim.material_no() as usize];
+                    // let mat_info = material_file.material_by_name(mat_name).unwrap();
+                    // mat_info.mat_type().name() == "nDraw::MaterialToon"
+                    true
                 } else {
                     true
                 }

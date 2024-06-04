@@ -21,7 +21,7 @@ impl Texture {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2, // TODO: fill this in from resource
-                format: resource.format().wgpu_type(),
+                format: resource.format_wgpu(),
                 usage: wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             },

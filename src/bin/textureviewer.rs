@@ -15,15 +15,14 @@ struct TextureViewerApp {
 
 impl RendererApp for TextureViewerApp {
     fn setup(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        manager: &RendererAppManagerPublic,
         swapchain_format: wgpu::TextureFormat,
     ) -> anyhow::Result<Self> {
         let args: Vec<_> = std::env::args().collect();
 
         let mut f = std::fs::File::open(&args[1]).unwrap();
         let texture_resource = TextureFile::new(&mut f).unwrap();
-        let texture = Texture::new(device, queue, texture_resource);
+        let texture = Texture::new(manager.device(), manager.queue(), texture_resource);
 
         #[rustfmt::skip]
         let vertex_buf_data: [f32; 6 * 2] = [
@@ -35,59 +34,69 @@ impl RendererApp for TextureViewerApp {
             -1., -1.,
         ];
 
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("vertex buffer"),
-            contents: vertex_buf_data.as_bytes(),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        let vertex_buffer =
+            manager
+                .device()
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("vertex buffer"),
+                    contents: vertex_buf_data.as_bytes(),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
 
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("shader"),
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!(
-                "../shaders/textured_position.wgsl"
-            ))),
-        });
+        let shader = manager
+            .device()
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("shader"),
+                source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!(
+                    "../shaders/textureviewer.wgsl"
+                ))),
+            });
 
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("render pipeline layout"),
-            bind_group_layouts: &[texture.bind_group_layout()],
-            push_constant_ranges: &[],
-        });
+        let pipeline_layout =
+            manager
+                .device()
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("render pipeline layout"),
+                    bind_group_layouts: &[texture.bind_group_layout()],
+                    push_constant_ranges: &[],
+                });
 
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("render pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: "vs_main",
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: (size_of::<f32>() * 2) as u64,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &[wgpu::VertexAttribute {
-                        format: wgpu::VertexFormat::Float32x2,
-                        offset: 0,
-                        shader_location: 0,
+        let pipeline = manager
+            .device()
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("render pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: "vs_main",
+                    buffers: &[wgpu::VertexBufferLayout {
+                        array_stride: (size_of::<f32>() * 2) as u64,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &[wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x2,
+                            offset: 0,
+                            shader_location: 0,
+                        }],
                     }],
-                }],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: swapchain_format,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-        });
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: "fs_main",
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: swapchain_format,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    ..Default::default()
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+            });
 
         Ok(TextureViewerApp {
             texture,

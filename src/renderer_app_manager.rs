@@ -13,8 +13,7 @@ use crate::input_state::{InputState, KeyState};
 
 pub trait RendererApp {
     fn setup(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        manager: &RendererAppManagerPublic,
         swapchain_format: wgpu::TextureFormat,
     ) -> anyhow::Result<Self>
     where
@@ -64,6 +63,10 @@ impl RendererAppManagerPublic {
 
     pub fn frame_time(&self) -> Duration {
         self.frame_time
+    }
+
+    pub fn window(&self) -> &Window {
+        &self.window
     }
 }
 
@@ -124,19 +127,20 @@ where
         config.format = swapchain_format;
         surface.configure(&device, &config);
 
-        let app = A::setup(&device, &queue, swapchain_format)?;
+        let public = RendererAppManagerPublic {
+            window,
+
+            config,
+            surface,
+            device,
+            queue,
+            input: InputState::new(),
+            frame_time: Duration::ZERO,
+        };
+        let app = A::setup(&public, swapchain_format)?;
 
         Ok(RendererAppManager {
-            public: RendererAppManagerPublic {
-                window,
-
-                config,
-                surface,
-                device,
-                queue,
-                input: InputState::new(),
-                frame_time: Duration::ZERO,
-            },
+            public,
 
             app,
             last_frame: Instant::now(),
@@ -207,8 +211,6 @@ where
 
         let mut manager = pollster::block_on(Self::create(window.clone()))?;
 
-        window.set_cursor_grab(winit::window::CursorGrabMode::Confined)?;
-        window.set_cursor_visible(false);
 
         event_loop.run(move |event, target| match event {
             Event::WindowEvent {

@@ -63,10 +63,14 @@ impl ModelViewerApp {
 
 impl RendererApp for ModelViewerApp {
     fn setup(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        public: &RendererAppManagerPublic,
         swapchain_format: wgpu::TextureFormat,
     ) -> anyhow::Result<Self> {
+        public
+            .window()
+            .set_cursor_grab(winit::window::CursorGrabMode::Confined)?;
+        public.window().set_cursor_visible(false);
+
         let args: Vec<_> = std::env::args().collect();
 
         let mut resource_manager = ResourceManager::new(&PathBuf::from(&args[1]));
@@ -75,7 +79,7 @@ impl RendererApp for ModelViewerApp {
             .get_resource_fancy("custom_shaders/CustomShaderPackage", &DTIs::rShader2)?;
         let shader2 = Shader2File::new(&mut shader_file)?;
 
-        let transform_buf = device.create_buffer(&wgpu::BufferDescriptor {
+        let transform_buf = public.device().create_buffer(&wgpu::BufferDescriptor {
             label: Some("transform buffer"),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             size: size_of::<Mat4>() as u64,
@@ -83,28 +87,32 @@ impl RendererApp for ModelViewerApp {
         });
 
         let transform_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("transform binding group layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
+            public
+                .device()
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("transform binding group layout"),
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }],
+                });
+
+        let transform_bind_group = public
+            .device()
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("transform binding group"),
+                layout: &transform_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
+                    resource: transform_buf.as_entire_binding(),
                 }],
             });
-
-        let transform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("transform binding group"),
-            layout: &transform_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: transform_buf.as_entire_binding(),
-            }],
-        });
 
         let mut character_file =
             resource_manager.get_resource_fancy(&args[2], &DTIs::nGO__rCharacter)?;
@@ -139,15 +147,15 @@ impl RendererApp for ModelViewerApp {
             &material,
             &shader2,
             &resource_manager,
-            device,
-            queue,
+            public.device(),
+            public.queue(),
             &transform_bind_group_layout,
             swapchain_format,
         )?;
 
         model.set_parts_disp(&parts_disp);
 
-        let debug_overlay = DebugOverlay::new(device, swapchain_format);
+        let debug_overlay = DebugOverlay::new(public.device(), swapchain_format);
 
         Ok(ModelViewerApp {
             model,
