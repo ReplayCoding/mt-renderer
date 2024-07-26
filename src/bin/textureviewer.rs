@@ -11,6 +11,23 @@ struct TextureViewerApp {
     texture: Texture,
     pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
+
+    image_size: glam::Vec2,
+
+    scale_buf: wgpu::Buffer,
+    scale_bg: wgpu::BindGroup,
+}
+
+fn compute_scale(image_size: glam::Vec2, window_size: glam::Vec2) -> glam::Vec2 {
+    dbg!(image_size);
+    dbg!(window_size);
+
+    if image_size.max_element() > window_size.max_element() {
+        glam::Vec2::splat(1.) // TODO
+    }
+    else {
+        glam::vec2(image_size.x / window_size.x, image_size.y / window_size.y)
+    }
 }
 
 impl RendererApp for TextureViewerApp {
@@ -22,6 +39,12 @@ impl RendererApp for TextureViewerApp {
 
         let mut f = std::fs::File::open(&args[1]).unwrap();
         let texture_resource = TextureFile::new(&mut f).unwrap();
+
+        let image_size = glam::vec2(
+            texture_resource.width() as f32,
+            texture_resource.height() as f32,
+        );
+
         let texture = Texture::new(manager.device(), manager.queue(), texture_resource);
 
         #[rustfmt::skip]
@@ -52,12 +75,51 @@ impl RendererApp for TextureViewerApp {
                 ))),
             });
 
+        let scale_buf = manager.device().create_buffer(&wgpu::BufferDescriptor {
+            label: Some("texture scale buffer"),
+            size: size_of::<f32>() as u64 * 2,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let scale_bgl =
+            manager
+                .device()
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("texture scale bind group layout"),
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }],
+                });
+
+        let scale_bg = manager
+            .device()
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("texture scale bind group"),
+                layout: &scale_bgl,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &scale_buf,
+                        offset: 0,
+                        size: None,
+                    }),
+                }],
+            });
+
         let pipeline_layout =
             manager
                 .device()
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("render pipeline layout"),
-                    bind_group_layouts: &[texture.bind_group_layout()],
+                    bind_group_layouts: &[texture.bind_group_layout(), &scale_bgl],
                     push_constant_ranges: &[],
                 });
 
@@ -102,15 +164,30 @@ impl RendererApp for TextureViewerApp {
             texture,
             pipeline,
             vertex_buffer,
+            scale_buf,
+            scale_bg,
+            image_size,
         })
     }
 
     fn render(
         &mut self,
-        _manager: &RendererAppManagerPublic,
+        manager: &RendererAppManagerPublic,
         frame_view: &wgpu::TextureView,
         encoder: &mut wgpu::CommandEncoder,
     ) -> anyhow::Result<()> {
+        let scale = compute_scale(
+            self.image_size,
+            glam::vec2(
+                manager.config().width as f32,
+                manager.config().height as f32,
+            ),
+        );
+
+        manager
+            .queue()
+            .write_buffer(&self.scale_buf, 0, scale.as_ref().as_bytes());
+
         let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("main render pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -134,6 +211,8 @@ impl RendererApp for TextureViewerApp {
         rpass.set_pipeline(&self.pipeline);
         rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         rpass.set_bind_group(0, self.texture.bind_group(), &[]);
+        rpass.set_bind_group(1, &self.scale_bg, &[]);
+
         rpass.draw(0..6, 0..1);
 
         Ok(())

@@ -154,6 +154,7 @@ impl TextureFile {
             7 => wgpu::TextureFormat::Rgba8Unorm,
             19 => wgpu::TextureFormat::Bc1RgbaUnorm,
             54 => wgpu::TextureFormat::Bc7RgbaUnorm,
+
             42 => wgpu::TextureFormat::Bc7RgbaUnorm,
             _ => todo!("unhandled texture format: {}", self.format()),
         }

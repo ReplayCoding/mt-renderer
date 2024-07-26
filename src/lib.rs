@@ -15,6 +15,7 @@ pub mod rshader2;
 pub mod rshaderpackage;
 pub mod rtexture;
 pub mod rscheduler;
+pub mod rgui;
 
 pub mod model;
 pub mod texture;
