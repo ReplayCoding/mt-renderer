@@ -351,6 +351,26 @@ pub fn deserialize<R: Read + Seek>(reader: &mut R) -> anyhow::Result<Class> {
     Ok(class.expect("root class shouldn't be None"))
 }
 
+
+pub fn prp_file_to_mtserializer<'a, R: Read + Seek>(
+    file: &'a mut R,
+) -> anyhow::Result<std::io::Cursor<Vec<u8>>> {
+    let mut magic_bytes = [0u8; 4];
+    file.read_exact(&mut magic_bytes)?;
+    let is_propparam = magic_bytes == "PRPZ".as_bytes();
+
+    file.seek(std::io::SeekFrom::Start(0))?;
+
+    let mut file_data = vec![];
+    file.read_to_end(&mut file_data)?;
+
+    if is_propparam {
+        file_data.drain(..12); // past header
+    };
+
+    Ok(std::io::Cursor::new(file_data))
+}
+
 #[test]
 fn test_struct_sizes() {
     use std::mem::size_of;

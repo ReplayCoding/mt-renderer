@@ -165,7 +165,7 @@ impl RendererApp for ModelViewerApp {
 
             depth_texture: None,
             depth_texture_view: None,
-            camera: Camera::new(glam::vec3(0., 0., 1.), 0., 0., 50.),
+            camera: Camera::new(glam::vec3(-5., 0., 1.), 0., 0., 50.),
             debug_overlay,
         })
     }

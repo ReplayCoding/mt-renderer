@@ -40,10 +40,10 @@ struct RawGuiMessageIndexItem {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct GuiMessageIndexItem {
-    label: String,
+pub struct GuiMessageIndexItem {
+    pub label: String,
     // NOTE: this is assuming that no items have duplicate message indices, which is theoretically possible
-    message: String,
+    pub message: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -202,6 +202,10 @@ impl GuiMessageFile {
         writer.write_all(&message_buf)?;
 
         Ok(())
+    }
+
+    pub fn messages(&self) -> &[GuiMessageIndexItem] {
+       &self.messages
     }
 }
 
